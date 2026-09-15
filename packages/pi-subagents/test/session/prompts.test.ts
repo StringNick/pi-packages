@@ -3,7 +3,7 @@ import {
   formatSkillsForPrompt,
   type Skill,
 } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { EnvInfo } from "#src/session/env";
 import {
@@ -919,6 +919,83 @@ describe("buildAgentPrompt", () => {
         });
 
         expect(prompt.startsWith(identity.trimEnd())).toBe(true);
+      });
+    });
+
+    describe("the child's own project context", () => {
+      /** A loader standing in for Pi's discovery over the child's directory. */
+      function loaderFinding(content: string) {
+        return vi.fn((cwd: string) =>
+          renderProjectContext([{ path: `${cwd}/AGENTS.md`, content }]),
+        );
+      }
+
+      /** The parent's own block, which a relocated child must not keep. */
+      const PARENT_CONTEXT: ContextFile[] = [
+        { path: `${PARENT_CWD}/AGENTS.md`, content: "Repo rules." },
+      ];
+
+      function relocatedChild(load: (cwd: string) => string | undefined) {
+        return buildAgentPrompt(
+          replaceConfig(),
+          "/workspace",
+          env,
+          {
+            systemPrompt: parentPrompt({
+              contextFiles: PARENT_CONTEXT,
+              footerCwd: PARENT_CWD,
+            }),
+            cwd: PARENT_CWD,
+          },
+          load,
+        );
+      }
+
+      it("names the child's own directory, not the parent's", () => {
+        const prompt = relocatedChild(loaderFinding("Worktree rules."));
+
+        expect(prompt).toContain('<project_instructions path="/workspace/AGENTS.md">');
+        expect(prompt).not.toContain(`path="${PARENT_CWD}/AGENTS.md"`);
+      });
+
+      it("places the block where Pi places it, ahead of the per-call header", () => {
+        const prompt = relocatedChild(loaderFinding("Worktree rules."));
+
+        expect(prompt.indexOf("<project_context>")).toBeLessThan(
+          prompt.indexOf('<active_agent name="specialist"/>'),
+        );
+      });
+
+      it("leaves the agent's own body last in replace mode", () => {
+        const prompt = relocatedChild(loaderFinding("Worktree rules."));
+
+        expect(prompt.endsWith("You are a specialist.")).toBe(true);
+      });
+
+      it("carries no project context when the workspace resolves none", () => {
+        const prompt = relocatedChild(() => undefined);
+
+        expect(prompt).not.toContain("<project_context>");
+      });
+
+      it("does not consult the loader when the child shares the parent's cwd", () => {
+        const load = loaderFinding("Worktree rules.");
+
+        buildAgentPrompt(
+          replaceConfig(),
+          PARENT_CWD,
+          env,
+          {
+            systemPrompt: parentPrompt({
+              contextFiles: PARENT_CONTEXT,
+              footerCwd: PARENT_CWD,
+            }),
+            cwd: PARENT_CWD,
+          },
+          load,
+        );
+
+        expect(load).not.toHaveBeenCalled();
       });
     });
   });

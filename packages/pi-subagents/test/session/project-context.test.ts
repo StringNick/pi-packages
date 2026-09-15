@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { renderProjectContext } from "#src/session/project-context";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  type ContextFile,
+  createProjectContextLoader,
+  renderProjectContext,
+} from "#src/session/project-context";
 
 describe("renderProjectContext", () => {
   describe("Pi's block format", () => {
@@ -64,6 +68,59 @@ describe("renderProjectContext", () => {
 
     it("renders nothing when the loader reported none at all", () => {
       expect(renderProjectContext(undefined)).toBeUndefined();
+    });
+  });
+});
+
+describe("createProjectContextLoader", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("resolves the block against the directory it is asked about", () => {
+    const discover = vi.fn(
+      ({ cwd }: { cwd: string; agentDir: string }): ContextFile[] => [
+        { path: `${cwd}/AGENTS.md`, content: "Worktree rules." },
+      ],
+    );
+
+    const block = createProjectContextLoader(discover, "/home/me/.pi/agent")("/worktree");
+
+    expect(discover).toHaveBeenCalledWith({
+      cwd: "/worktree",
+      agentDir: "/home/me/.pi/agent",
+    });
+    expect(block).toContain('<project_instructions path="/worktree/AGENTS.md">');
+  });
+
+  describe("a directory that carries no project instructions", () => {
+    const discoverNothing = (): ContextFile[] => [];
+
+    it("loads no block", () => {
+      expect(
+        createProjectContextLoader(discoverNothing, "/home/me/.pi/agent")("/sandbox"),
+      ).toBeUndefined();
+    });
+
+    it("notes the empty directory when debug logging is on", () => {
+      vi.stubEnv("PI_SUBAGENTS_DEBUG", "1");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      createProjectContextLoader(discoverNothing, "/home/me/.pi/agent")("/sandbox");
+
+      expect(warn).toHaveBeenCalledWith(
+        "[pi-subagents:debug] no project context under /sandbox",
+      );
+    });
+
+    it("stays silent when debug logging is off", () => {
+      vi.stubEnv("PI_SUBAGENTS_DEBUG", "");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      createProjectContextLoader(discoverNothing, "/home/me/.pi/agent")("/sandbox");
+
+      expect(warn).not.toHaveBeenCalled();
     });
   });
 });

@@ -3,6 +3,7 @@
  */
 
 import type { EnvInfo } from "#src/session/env";
+import type { ProjectContextLoader } from "#src/session/project-context";
 import type { AgentPromptConfig, PromptInheritance } from "#src/types";
 
 /** The parent session's contribution to a child prompt, plus the cwd that text claims. */
@@ -54,16 +55,20 @@ export interface InheritedPrompt {
  * Only the parent prompt's identity is inherited — see `inheritedIdentity`.
  *
  * @param inherited  The parent agent's effective system prompt and the cwd it names.
+ * @param loadProjectContext  Resolves a directory's project instructions, for a
+ *   child whose adopted identity carries none describing its own.
  */
 export function buildAgentPrompt(
   config: AgentPromptConfig,
   cwd: string,
   env: EnvInfo,
   inherited?: InheritedPrompt,
+  loadProjectContext?: ProjectContextLoader,
 ): string {
   const header = buildPromptHeader(config.name, cwd, env);
 
   const identity = inherited ? adoptedIdentity(inherited, cwd) : genericBase;
+  const projectContext = ownProjectContext(inherited, cwd, loadProjectContext);
 
   if (config.promptMode === "append") {
     const customSection = config.systemPrompt.trim()
@@ -74,14 +79,40 @@ export function buildAgentPrompt(
     // with the parent session, which prefix-reusing inference engines reuse
     // instead of reprocessing. The <active_agent> tag and env block vary per
     // call and are placed after that prefix.
-    return identity + "\n\n" + header + customSection;
+    return identity + projectContext + "\n\n" + header + customSection;
   }
 
   // "replace" mode — identity prefix first, then the active_agent tag, env
   // block, and the config's full system prompt. Unlike append mode, no
   // <agent_instructions> wrapper is injected — the custom prompt retains full
   // control.
-  return identity + "\n\n" + header + "\n\n" + config.systemPrompt;
+  return identity + projectContext + "\n\n" + header + "\n\n" + config.systemPrompt;
+}
+
+/**
+ * The project-context section a child contributes for itself, or "" when the
+ * identity it adopted already describes its directory.
+ *
+ * Only a child a `WorkspaceProvider` relocated needs one: its inherited block
+ * was cut with the rest of the session-resolved tail, because that block named
+ * the parent's files by absolute path (#918). Rendering it here rather than
+ * letting Pi append it keeps the agent's own body last, which is what
+ * `prompt_mode: replace` promises.
+ *
+ * A directory that resolves no context file contributes nothing — project
+ * instructions describe a project this child is not working in.
+ */
+function ownProjectContext(
+  inherited: InheritedPrompt | undefined,
+  cwd: string,
+  loadProjectContext: ProjectContextLoader | undefined,
+): string {
+  if (!inherited || !loadProjectContext) return "";
+  const adoptedDescribesOwnDirectory =
+    inherited.strategy === "portable" || cwd === inherited.cwd;
+  if (adoptedDescribesOwnDirectory) return "";
+  const block = loadProjectContext(cwd);
+  return block ? `\n\n${block}` : "";
 }
 
 /**

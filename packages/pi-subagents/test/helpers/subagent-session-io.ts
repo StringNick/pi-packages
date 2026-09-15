@@ -23,7 +23,7 @@ const DEFAULT_AGENT_CONFIG: AgentConfig = {
  * Return type is deliberately unannotated so vi.fn() stubs retain their
  * Mock<...> methods (mockResolvedValue, mock.calls, etc.).
  *
- * The assemblerIO sub-object only includes the method that exists on the
+ * The assemblerIO sub-object only includes the methods that exist on the
  * production AssemblerIO interface. The stale buildMemoryBlock and
  * buildReadOnlyMemoryBlock stubs from older test files are intentionally omitted.
  *
@@ -57,6 +57,7 @@ export function createSubagentSessionIO() {
 			// Typed against the real signature so a test can read back the
 			// inherited-prompt argument the assembler composed.
 			buildAgentPrompt: vi.fn<AssemblerIO["buildAgentPrompt"]>(() => "system prompt"),
+			loadProjectContext: vi.fn<AssemblerIO["loadProjectContext"]>(() => undefined),
 		},
 	};
 }

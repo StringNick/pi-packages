@@ -2,6 +2,8 @@
  * project-context.ts — Pi's `<project_context>` block, rendered from context files.
  */
 
+import { debugNote } from "#src/debug";
+
 /** A context file (`AGENTS.md` and kin) as Pi's loader reports it. */
 export interface ContextFile {
   /** Absolute path the block attributes the instructions to. */
@@ -29,4 +31,33 @@ export function renderProjectContext(
       `<project_instructions path="${path}">\n${content}\n</project_instructions>\n`,
   );
   return `<project_context>\n\nProject-specific instructions and guidelines:\n\n${blocks.join("\n")}\n</project_context>`;
+}
+
+/** The project-context block a session working in `cwd` would carry. */
+export type ProjectContextLoader = (cwd: string) => string | undefined;
+
+/** Pi's context-file discovery, as `loadProjectContextFiles` implements it. */
+export type ContextFileDiscovery = (options: {
+  cwd: string;
+  agentDir: string;
+}) => ContextFile[];
+
+/**
+ * A loader that resolves a directory's project instructions against the
+ * filesystem, for a child whose adopted identity carries none of its own.
+ *
+ * An empty result means the directory, every ancestor of it, and the global
+ * agent directory all carry no context file — a real outcome for a sandbox
+ * workspace, and one with nothing in the child's prompt to show for it. The
+ * debug note is the only place that absence is visible.
+ */
+export function createProjectContextLoader(
+  discover: ContextFileDiscovery,
+  agentDir: string,
+): ProjectContextLoader {
+  return (cwd) => {
+    const block = renderProjectContext(discover({ cwd, agentDir }));
+    if (!block) debugNote(`no project context under ${cwd}`);
+    return block;
+  };
 }

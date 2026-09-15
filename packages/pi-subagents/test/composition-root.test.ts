@@ -527,4 +527,25 @@ describe("composition root: prompt-inheritance wiring", () => {
       expect(deps.resolvePromptInheritance("anthropic")).toBe("full");
     });
   });
+
+  describe("the session factory's project-context loader", () => {
+    let workspace: string;
+
+    beforeEach(() => {
+      workspace = mkdtempSync(join(tmpdir(), "pi-root-context-"));
+      writeFileSync(join(workspace, "AGENTS.md"), "Worktree rules.");
+    });
+
+    afterEach(() => {
+      rmSync(workspace, { recursive: true, force: true });
+    });
+
+    it("reads the directory it is asked about, not the parent's", async () => {
+      const [, deps] = await spawnAfterParentTurn();
+
+      expect(deps.io.assemblerIO.loadProjectContext(workspace)).toContain(
+        `<project_instructions path="${join(workspace, "AGENTS.md")}">`,
+      );
+    });
+  });
 });

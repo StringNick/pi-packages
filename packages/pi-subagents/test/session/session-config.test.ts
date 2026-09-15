@@ -47,9 +47,14 @@ const ctx: AssemblerContext = {
   modelRegistry: mockRegistry,
 };
 
+const mockLoadProjectContext: Mock<AssemblerIO["loadProjectContext"]> = vi.fn(
+  () => undefined,
+);
+
 /** IO stubs injected into assembleSessionConfig in place of module-level imports. */
 const mockIO = {
   buildAgentPrompt: mockBuildAgentPrompt,
+  loadProjectContext: mockLoadProjectContext,
 };
 
 /** The explore agent config used across the model/thinking resolution tests. */
@@ -61,6 +66,7 @@ beforeEach(() => {
   mockResolveAgentConfig.mockClear();
   mockGetToolNamesForType.mockClear();
   mockBuildAgentPrompt.mockClear();
+  mockLoadProjectContext.mockClear();
   mockRegistry.find.mockReset();
   mockRegistry.getAll.mockClear();
   mockRegistry.getAvailable.mockClear();
@@ -121,6 +127,7 @@ describe("assembleSessionConfig — default agent shape", () => {
         strategy: "full",
         portablePrompt: undefined,
       },
+      mockLoadProjectContext,
     );
   });
 });
@@ -380,5 +387,14 @@ describe("assembleSessionConfig — prompt inheritance", () => {
     assembleSessionConfig("explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(strategyPassedToPrompt()).toBe("full");
+  });
+
+  it("relays the project-context loader to the prompt builder", () => {
+    // The builder decides whether this child needs its own block, so the
+    // assembler must hand the loader over rather than calling it.
+    assembleSessionConfig("Explore", ctx, { cwd: "/workspace" }, mockEnv, mockAgentLookup, mockIO);
+
+    expect(mockBuildAgentPrompt.mock.calls[0]?.[4]).toBe(mockLoadProjectContext);
+    expect(mockLoadProjectContext).not.toHaveBeenCalled();
   });
 });
