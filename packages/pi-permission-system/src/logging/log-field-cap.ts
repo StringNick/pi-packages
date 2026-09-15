@@ -1,3 +1,5 @@
+import { isPlainRecord } from "#src/value-guards";
+
 /**
  * The permission review log's width bound (ADR 0011 §6).
  *
@@ -57,7 +59,7 @@ function capValue(value: unknown, maxWidth: number): unknown {
   if (Array.isArray(value)) {
     return value.map((entry) => capValue(entry, maxWidth));
   }
-  if (isPlainObject(value)) {
+  if (isPlainRecord(value)) {
     return Object.fromEntries(
       Object.entries(value).map(([key, entry]) => [
         key,
@@ -66,17 +68,4 @@ function capValue(value: unknown, maxWidth: number): unknown {
     );
   }
   return value;
-}
-
-/**
- * Whether a value is a record this cap should descend into.
- *
- * A class instance (a `Date`, an `Error`) is left alone: rebuilding it as a
- * plain object would change what the writer serializes, and the cap's job is
- * to shorten strings, not to reshape a value.
- */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null) return false;
-  const prototype: unknown = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
 }
