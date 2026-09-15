@@ -63,7 +63,7 @@ export function buildAgentPrompt(
 ): string {
   const header = buildPromptHeader(config.name, cwd, env);
 
-  const identity = inherited ? adoptedIdentity(inherited) : genericBase;
+  const identity = inherited ? adoptedIdentity(inherited, cwd) : genericBase;
 
   if (config.promptMode === "append") {
     const customSection = config.systemPrompt.trim()
@@ -96,9 +96,13 @@ export function buildAgentPrompt(
  * never to the full prompt: opting into portable must never silently re-embed
  * the harness base it exists to avoid.
  */
-function adoptedIdentity(inherited: InheritedPrompt): string {
+function adoptedIdentity(inherited: InheritedPrompt, cwd: string): string {
   if (inherited.strategy !== "portable") {
-    return inheritedIdentity(inherited.systemPrompt, inherited.cwd);
+    return inheritedIdentity(
+      inherited.systemPrompt,
+      inherited.cwd,
+      cwd !== inherited.cwd,
+    );
   }
   // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- || intentional: a whitespace-only capture must fall back too, which ?? would not do
   return inherited.portablePrompt?.trim() || genericBase;
@@ -128,6 +132,15 @@ const SKILLS_SECTION_HEADING =
 /** Closing tag of that catalogue. */
 const SKILLS_CATALOGUE_CLOSE = "</available_skills>";
 
+/** Opening tag of the block Pi renders the session's context files into. */
+const PROJECT_CONTEXT_OPEN = "<project_context>";
+
+/** Closing tag of that block. */
+const PROJECT_CONTEXT_CLOSE = "</project_context>";
+
+/** The sentence Pi writes two lines below the opening tag. */
+const PROJECT_CONTEXT_LEAD_IN = "Project-specific instructions and guidelines:";
+
 /**
  * Reduce an inherited prompt to the identity a child may adopt as its own.
  *
@@ -150,10 +163,19 @@ const SKILLS_CATALOGUE_CLOSE = "</available_skills>";
  *
  * A prompt carrying neither layer is not one `buildSystemPrompt` assembled, and
  * is returned unchanged.
+ *
+ * `cutProjectContext` extends the cut one layer earlier, to the
+ * `<project_context>` block, for a child whose workspace is not its parent's
+ * (#918). That block names each context file by absolute path, so an inherited
+ * copy tells a relocated child its files live in the parent's checkout.
  */
-function inheritedIdentity(prompt: string, parentCwd: string): string {
+function inheritedIdentity(
+  prompt: string,
+  parentCwd: string,
+  cutProjectContext: boolean,
+): string {
   const lines = prompt.split("\n");
-  const tailStart = sessionResolvedTailStart(lines, parentCwd);
+  const tailStart = sessionResolvedTailStart(lines, parentCwd, cutProjectContext);
   return tailStart === -1
     ? prompt
     : lines.slice(0, tailStart).join("\n").trimEnd();
@@ -172,12 +194,41 @@ function inheritedIdentity(prompt: string, parentCwd: string): string {
 function sessionResolvedTailStart(
   lines: readonly string[],
   parentCwd: string,
+  cutProjectContext: boolean,
 ): number {
   const footerAt = lines.lastIndexOf(
     `Current working directory: ${toPromptPath(parentCwd)}`,
   );
   const catalogueAt = skillsSectionStart(lines, footerAt);
-  return catalogueAt === -1 ? footerAt : catalogueAt;
+  const tailAt = catalogueAt === -1 ? footerAt : catalogueAt;
+  if (!cutProjectContext || tailAt === -1) return tailAt;
+  const projectContextAt = projectContextStart(lines, tailAt);
+  return projectContextAt === -1 ? tailAt : projectContextAt;
+}
+
+/**
+ * Line index of the project-context block's opening tag, or -1 when the parent
+ * session resolved no context files.
+ *
+ * Located by the same positional discipline as the catalogue: Pi writes the
+ * block immediately before whichever session-resolved layer follows, so its
+ * closing tag is the last non-blank line above the already-anchored tail. The
+ * opening is then the nearest one above that tag carrying Pi's lead-in sentence
+ * two lines below it, which keeps a context file quoting the opening — later in
+ * the document than the real one — from being taken for it.
+ */
+function projectContextStart(lines: readonly string[], tailAt: number): number {
+  let closeAt = tailAt - 1;
+  while (closeAt >= 0 && lines[closeAt] === "") closeAt--;
+  if (closeAt < 0 || lines[closeAt] !== PROJECT_CONTEXT_CLOSE) return -1;
+  for (
+    let openAt = lines.lastIndexOf(PROJECT_CONTEXT_OPEN, closeAt);
+    openAt !== -1;
+    openAt = lines.lastIndexOf(PROJECT_CONTEXT_OPEN, openAt - 1)
+  ) {
+    if (lines[openAt + 2] === PROJECT_CONTEXT_LEAD_IN) return openAt;
+  }
+  return -1;
 }
 
 /**
