@@ -96,6 +96,54 @@ describe("withSalvagedRoots", () => {
     });
   });
 
+  describe("which node type holds the region", () => {
+    /**
+     * A stub node tree, so the rule can be exercised on a shape
+     * `tree-sitter-bash` 0.25.1 does not currently produce.
+     *
+     * Every salvageable region of the one grammar gap this package has met is
+     * a `file_redirect` — probed across 25 spellings of it, including the gap
+     * nested in a control-flow body, a subshell, and a substitution. So no
+     * real command distinguishes "the innermost unresolved node" from "the
+     * innermost unresolved `file_redirect`", and a stub is the only way to
+     * pin which rule is implemented. The distinction is the whole point: ADR
+     * 0013's fail-closed clause is triggered by the parse's health rather
+     * than by a node type, and a type-keyed salvage would silently drop the
+     * next grammar gap that lands somewhere else.
+     */
+    function stubNode(
+      type: string,
+      text: string,
+      children: TSNode[] = [],
+    ): TSNode {
+      return {
+        type,
+        text,
+        startIndex: 0,
+        endIndex: text.length,
+        childCount: children.length,
+        isNamed: true,
+        hasError: type === "ERROR" || children.some((c) => c.hasError),
+        previousSibling: null,
+        child: (index) => children[index] ?? null,
+      };
+    }
+
+    it("salvages a region no redirect holds", async () => {
+      const parser = await getParser();
+      const region = stubNode("some_future_node", "rm -rf /tmp/x", [
+        stubNode("ERROR", "|"),
+      ]);
+      const root = stubNode("program", "rm -rf /tmp/x", [region]);
+
+      expect(
+        withSalvagedRoots(root, parser, (roots) =>
+          roots.map((salvaged) => salvaged.text),
+        ),
+      ).toEqual(["rm -rf /tmp/x"]);
+    });
+  });
+
   describe("the trees it creates", () => {
     it("deletes every salvage tree before returning", async () => {
       const parser = await getParser();

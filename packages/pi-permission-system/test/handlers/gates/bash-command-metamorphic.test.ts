@@ -10,6 +10,8 @@
  * full fuzzer (tree-sitter fuzzing is brittle); it pins A3 directly.
  */
 import { describe, expect, it } from "vitest";
+import { collectCommands } from "#src/access-intent/bash/command-enumeration";
+import { getParser } from "#src/access-intent/bash/parser";
 import { BashProgram } from "#src/access-intent/bash/program";
 import { resolveBashCommandCheck } from "#src/handlers/gates/bash-command";
 import { pathFlavorForPlatform } from "#src/path/path-flavor";
@@ -266,6 +268,29 @@ describe("bash command gate — a parse it could not resolve fails closed", () =
     // well-formed redirect preceded by an unrelated recovery failure.
     { label: "a read-write open", command: "cat <> rw.txt" },
     { label: "an unclosed arithmetic expansion", command: "cat $(( > out.txt" },
+    // Further spellings of the grammar gap, probed against the real parser:
+    // the failing region can sit inside any enclosing statement, and the
+    // redirect can take several forms before the pipe.
+    {
+      label: "the gap inside a control-flow body",
+      command: "if true; then cat <<'EOF' 2>&1 | rm -rf /x\nbody\nEOF\nfi",
+    },
+    {
+      label: "the gap inside a subshell",
+      command: "(cat <<'E' 2>&1 | rm -rf /x\nb\nE\n)",
+    },
+    {
+      label: "the gap inside a command substitution",
+      command: "x=$(cat <<'E' 2>&1 | rm -rf /x\nb\nE\n)",
+    },
+    {
+      label: "the gap with a duplicating redirect to stderr",
+      command: "cat <<'E' 1>&2 | rm -rf /x\nb\nE",
+    },
+    {
+      label: "the gap piping stderr too",
+      command: "cat <<'E' 2>&1 |& rm -rf /x\nb\nE",
+    },
   ];
 
   /** Commands that parse cleanly, as the control set. */
@@ -303,6 +328,51 @@ describe("bash command gate — a parse it could not resolve fails closed", () =
       const units = (await BashProgram.parse(command, normalizer)).commands();
 
       expect(units.filter((unit) => unit.parseUnresolved === true)).toEqual([]);
+    });
+  });
+
+  describe("the salvage only ever adds to what the primary parse found", () => {
+    /** The units the primary parse alone yields, with no salvage. */
+    async function primaryUnitsOf(command: string) {
+      const parser = await getParser();
+      const tree = parser.parse(command);
+      if (!tree) throw new Error("parse returned null");
+      try {
+        return collectCommands(tree.rootNode);
+      } finally {
+        tree.delete();
+      }
+    }
+
+    it.each([...unresolved.map(({ command }) => command), ...resolved])(
+      "keeps every primary unit, in order, for %s",
+      async (command) => {
+        // Salvaging is additive by construction, and this is the property that
+        // says so: a mechanism that reordered or replaced units could weaken a
+        // decision the primary parse already reached.
+        const units = (await BashProgram.parse(command, normalizer)).commands();
+        const primary = await primaryUnitsOf(command);
+
+        expect(units.slice(0, primary.length)).toEqual(primary);
+      },
+    );
+
+    it.each([...unresolved.map(({ command }) => command), ...resolved])(
+      "emits no unit whose text the command does not contain, for %s",
+      async (command) => {
+        // Anti-invention: every unit's text is sliced from a parse of the
+        // command's own source, salvaged or not. Recovery's invented structure
+        // is refused a step earlier, when its re-parse fails.
+        const units = (await BashProgram.parse(command, normalizer)).commands();
+
+        expect(units.filter(({ text }) => !command.includes(text))).toEqual([]);
+      },
+    );
+
+    it.each(resolved)("adds no unit at all to %s", async (command) => {
+      const units = (await BashProgram.parse(command, normalizer)).commands();
+
+      expect(units).toEqual(await primaryUnitsOf(command));
     });
   });
 
