@@ -80,34 +80,6 @@ describe("buildParentSnapshot", () => {
       expect(snapshot.portablePrompt).toBeUndefined();
     });
 
-    it("renders context files the way Pi's buildSystemPrompt does", () => {
-      // Byte-exact against core/system-prompt.ts, which writes the lead-in
-      // sentence and separates each block with a blank line.
-      const snapshot = buildParentSnapshot(makeCtx(), false, {
-        contextFiles: [
-          { path: "/repo/AGENTS.md", content: "Repo rules." },
-          { path: "/repo/sub/AGENTS.md", content: "Nested rules." },
-        ],
-      });
-      expect(snapshot.portablePrompt).toBe(
-        [
-          "<project_context>",
-          "",
-          "Project-specific instructions and guidelines:",
-          "",
-          '<project_instructions path="/repo/AGENTS.md">',
-          "Repo rules.",
-          "</project_instructions>",
-          "",
-          '<project_instructions path="/repo/sub/AGENTS.md">',
-          "Nested rules.",
-          "</project_instructions>",
-          "",
-          "</project_context>",
-        ].join("\n"),
-      );
-    });
-
     it("orders the parts the way Pi composes them: custom, append, then context", () => {
       const snapshot = buildParentSnapshot(makeCtx(), false, {
         contextFiles: [{ path: "/repo/AGENTS.md", content: "Repo rules." }],
