@@ -5,6 +5,7 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { buildParentContext } from "#src/session/context";
 import type { ModelRegistry } from "#src/session/model-resolver";
+import { renderProjectContext } from "#src/session/project-context";
 import type { SessionContext, ThinkingLevel } from "#src/types";
 
 /**
@@ -100,22 +101,4 @@ function buildPortablePrompt(options?: ParentPromptOptions): string | undefined 
   const projectContext = renderProjectContext(options.contextFiles);
   if (projectContext) sections.push(projectContext);
   return sections.length > 0 ? sections.join("\n\n") : undefined;
-}
-
-/**
- * Render context files as Pi's `<project_context>` block, byte for byte.
- *
- * Pi writes a lead-in sentence and separates each `<project_instructions>`
- * block with a blank line; matching it exactly is what keeps a portable child's
- * project instructions indistinguishable from a parent's.
- */
-function renderProjectContext(
-  contextFiles: ParentPromptOptions["contextFiles"],
-): string | undefined {
-  if (!contextFiles || contextFiles.length === 0) return undefined;
-  const blocks = contextFiles.map(
-    ({ path, content }) =>
-      `<project_instructions path="${path}">\n${content}\n</project_instructions>\n`,
-  );
-  return `<project_context>\n\nProject-specific instructions and guidelines:\n\n${blocks.join("\n")}\n</project_context>`;
 }
