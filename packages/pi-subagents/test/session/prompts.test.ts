@@ -6,6 +6,10 @@ import {
 import { describe, expect, it } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { EnvInfo } from "#src/session/env";
+import {
+  type ContextFile,
+  renderProjectContext,
+} from "#src/session/project-context";
 import { buildAgentPrompt } from "#src/session/prompts";
 import type { AgentConfig } from "#src/types";
 
@@ -428,19 +432,26 @@ describe("buildAgentPrompt", () => {
      * Assemble a parent prompt from the layers `buildSystemPrompt` writes, in
      * its order and with its separators.
      *
-     * The skills layer goes through Pi's own `formatSkillsForPrompt`, so an
-     * upstream rewording of its heading fails these tests rather than silently
+     * The skills layer goes through Pi's own `formatSkillsForPrompt`, and the
+     * project-context layer through this package's byte-replica of Pi's block,
+     * so an upstream rewording of either fails these tests rather than silently
      * changing which layer the inherited prompt is cut at.
      */
     function parentPrompt(
       layers: {
         identity?: string;
+        contextFiles?: ContextFile[];
         skills?: Skill[];
         footerCwd?: string;
         extensionTail?: string;
       } = {},
     ): string {
       let prompt = layers.identity ?? IDENTITY;
+      if (layers.contextFiles) {
+        // buildSystemPrompt opens the block with a blank line and closes it
+        // with a newline of its own, before whichever layer follows.
+        prompt += `\n\n${renderProjectContext(layers.contextFiles) ?? ""}\n`;
+      }
       if (layers.skills) {
         prompt += formatSkillsForPrompt(layers.skills);
       }
@@ -800,6 +811,26 @@ describe("buildAgentPrompt", () => {
         });
 
         expect(prompt.startsWith(IDENTITY_WITH_TOOLS)).toBe(true);
+      });
+
+      it("keeps the parent's project context inside the shared prefix", () => {
+        // The block is the bulk of a real identity, so a child at the parent's
+        // directory must carry it byte for byte where the parent has it.
+        const identity = parentPrompt({
+          identity: IDENTITY_WITH_TOOLS,
+          contextFiles: [{ path: `${PARENT_CWD}/AGENTS.md`, content: "Repo rules." }],
+        });
+        const prompt = buildAgentPrompt(appendConfig(), PARENT_CWD, env, {
+          systemPrompt: parentPrompt({
+            identity: IDENTITY_WITH_TOOLS,
+            contextFiles: [{ path: `${PARENT_CWD}/AGENTS.md`, content: "Repo rules." }],
+            skills: [skill("colgrep")],
+            footerCwd: PARENT_CWD,
+          }),
+          cwd: PARENT_CWD,
+        });
+
+        expect(prompt.startsWith(identity.trimEnd())).toBe(true);
       });
     });
   });
