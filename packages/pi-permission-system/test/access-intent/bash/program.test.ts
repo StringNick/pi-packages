@@ -1852,7 +1852,7 @@ describe("BashProgram", () => {
         expect(program.commands()).toEqual([
           { text: "git add -A .", parseUnresolved: true },
           { text: "git commit -F", parseUnresolved: true },
-          { text: "rm -rf /tmp/x", parseUnresolved: true },
+          { text: "rm -rf /tmp/x", parseUnresolved: true, salvaged: true },
         ]);
       });
 
@@ -1895,6 +1895,7 @@ describe("BashProgram", () => {
         expect(program.commands()).toContainEqual({
           text: "rm -rf /tmp/x",
           parseUnresolved: true,
+          salvaged: true,
         });
       });
 
@@ -1905,7 +1906,7 @@ describe("BashProgram", () => {
         );
         expect(program.commands()).toEqual([
           { text: "cat", parseUnresolved: true },
-          { text: "tail -4", parseUnresolved: true },
+          { text: "tail -4", parseUnresolved: true, salvaged: true },
         ]);
       });
 
@@ -1923,6 +1924,7 @@ describe("BashProgram", () => {
             wrapperKind: "indirection",
             executedUnit: "rm -rf /",
             parseUnresolved: true,
+            salvaged: true,
           },
         ]);
       });

@@ -437,6 +437,21 @@ describe("bash command gate — a parse it could not resolve fails closed", () =
       expect(await decide(dropped, makeKeyedResolver([]))).toBe("ask");
     });
 
+    it("still resolves the whole command when the primary parse found nothing", async () => {
+      // A body-less leading redirect ahead of the gap: the primary parse
+      // yields zero units, so the whole command string is the only surface an
+      // explicit deny can reach (#452, #712). Salvaging a unit must not make
+      // that check unreachable — `deny` → `ask` would be a real weakening, and
+      // the only one this otherwise-additive mechanism could cause.
+      const resolver = makeKeyedResolver([
+        { match: " rm -rf ", state: "deny" },
+      ]);
+
+      expect(
+        await decide("> f <<'M' 2>&1 | rm -rf /tmp/x\nmsg\nM", resolver),
+      ).toBe("deny");
+    });
+
     it("consults no rule for a region whose own re-parse fails", async () => {
       // `<>` recovery invents the token `">"`; admitting it as a unit would
       // match it against the bash rules (#814).

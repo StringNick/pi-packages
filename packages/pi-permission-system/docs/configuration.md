@@ -429,6 +429,7 @@ The bash gate fails closed: when in doubt it blocks or prompts, never silently a
 - If the permission gate throws an internal error (for example a transient tree-sitter parser-init failure), the tool call is **blocked** rather than passed ungated, and a `gate_error` entry is written to the review log naming the failure.
 - A non-empty command that cannot be parsed into command units resolves to **`ask`** (the synthetic `<unparseable-bash-command>` pattern in the review log) instead of falling through to a permissive top-level `*`.
   A `deny` rule covering the whole command still denies outright — the synthetic `ask` never masks a hard deny into an approvable prompt.
+  That whole-command check runs whenever the parse itself matched nothing, including when the recovery below went on to recover a command from the wreckage, so a rule naming the command in context (`"* rm -rf *"`) is still consulted.
   An empty, whitespace-only, or comment-only command has nothing to gate and is resolved normally.
 - A command the parser could only *partly* resolve is floored the same way (the synthetic `<unparsed-bash-subtree>` pattern in the review log).
   Recovered structure is not evidence of what runs, so any command unit at or beneath the statement holding the unresolved region has its `allow` clamped up to `ask`; an explicit `deny` or `ask` on that unit still decides.

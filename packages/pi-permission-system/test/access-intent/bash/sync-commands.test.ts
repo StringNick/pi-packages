@@ -68,7 +68,7 @@ describe("parseBashCommandsSync", () => {
       ).toEqual([
         { text: "git add -A .", parseUnresolved: true },
         { text: "git commit -F", parseUnresolved: true },
-        { text: "rm -rf /tmp/x", parseUnresolved: true },
+        { text: "rm -rf /tmp/x", parseUnresolved: true, salvaged: true },
       ]);
     });
   });

@@ -31,15 +31,19 @@ import type { PermissionCheckResult } from "#src/types";
  * from riding a permissive rule; an explicit `deny`/`ask` on the wrapper is left
  * untouched (`deny > ask > allow`).
  *
- * When `commands` is empty there are two cases. A trivially-empty command (an
- * empty, whitespace-only, or comment-only line) has genuinely nothing to gate,
- * so the whole `command` is resolved as before. A non-empty command that parsed
- * to zero command units (a parse anomaly or an opaque program) fails closed to
- * a synthetic `ask` so a permissive top-level `*` cannot silently allow an
+ * A trivially-empty command (an empty, whitespace-only, or comment-only line)
+ * has genuinely nothing to gate, so the whole `command` is resolved as before.
+ *
+ * When the *primary* parse matched nothing, the whole command string is the
+ * only surface an explicit `deny` can reach, so it is resolved first and a
+ * `deny` covering it denies outright rather than being masked into an
+ * approvable prompt (#712). With no units at all the result also fails closed
+ * to a synthetic `ask`, so a permissive top-level `*` cannot silently allow an
  * unparseable command (e.g. `cd /repo && git push` riding a top-level allow on
- * the empty-parse path) — #452. The whole command is still resolved first so an
- * explicit `deny` covering it denies outright rather than being masked into an
- * approvable prompt (#712).
+ * the empty-parse path) — #452. A command whose units are *all* salvaged
+ * (#875) takes the same whole-string check, because its primary parse matched
+ * nothing either; only the synthetic `ask` is skipped, since the recovered
+ * units now carry the verdict.
  *
  * A *partial* parse failure is the other half of that clause: the units the
  * recovery produced are enumerated normally, and any one the enumerator marked
@@ -76,22 +80,32 @@ export function resolveBashCommandCheck(
     ...(unit.wrapperKind ? { wrapperKind: unit.wrapperKind } : {}),
     ...(unit.context ? { commandContext: unit.context } : {}),
   })));
-  if (commands.length === 0) {
-    if (isTriviallyEmptyCommand(command)) {
-      return resolveOnBashSurface(command, agentName, resolver);
-    }
+  if (isTriviallyEmptyCommand(command)) {
+    return resolveOnBashSurface(command, agentName, resolver);
+  }
+
+  if (!commands.some((cmd) => cmd.salvaged !== true)) {
+    // The primary parse matched nothing, so the whole command string is the
+    // only surface an explicit `deny` can reach (#452, #712) — a rule naming
+    // the command in context (`"* rm -rf *"`) matches the string and not the
+    // fragment. This runs whether or not the salvage went on to recover units
+    // from the wreckage: `> f <<'M' 2>&1 | rm -rf /tmp/x` has zero primary
+    // units and one salvaged one, and keying the check on the combined list
+    // would silently drop a `deny` the pre-salvage gate reached (#875).
     const whole = resolveOnBashSurface(command, agentName, resolver);
     if (whole.state === "deny") {
       return whole;
     }
-    return {
-      state: "ask",
-      toolName: "bash",
-      source: "bash",
-      origin: "builtin",
-      command,
-      matchedPattern: "<unparseable-bash-command>",
-    };
+    if (commands.length === 0) {
+      return {
+        state: "ask",
+        toolName: "bash",
+        source: "bash",
+        origin: "builtin",
+        command,
+        matchedPattern: "<unparseable-bash-command>",
+      };
+    }
   }
 
   const results = commands.map((cmd) =>
