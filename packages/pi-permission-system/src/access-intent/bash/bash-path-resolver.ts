@@ -127,13 +127,31 @@ export class BashPathResolver {
    * itself is added to the external paths when it resolves outside the cwd.
    * Containment is always measured against the session cwd baked into the
    * normalizer, so a `workdir` outside the cwd does not widen the sandbox.
+   *
+   * `salvagedRoots` are regions the primary parse could not resolve, re-parsed
+   * cleanly on their own (`unresolved-salvage.ts`, #875). Their candidates are
+   * collected into the same array before projection runs, so a path both a
+   * salvaged region and the primary parse name folds to one entry rather than
+   * showing twice in the prompt. Each is walked under the **unknown** base: a
+   * fragment carries no record of the `cd` in force where it sat, and
+   * resolving `cat rel.txt` against the session cwd after `cd /outside` would
+   * name a different file than the one that runs — a rule for that other path
+   * could then allow this access. #393's unknown base declines the claim
+   * instead, keeping an absolute token literal-only and unconditionally
+   * external while a relative one is not projected at all.
    */
-  resolve(rootNode: TSNode): ResolvedBashPaths {
+  resolve(
+    rootNode: TSNode,
+    salvagedRoots: readonly TSNode[] = [],
+  ): ResolvedBashPaths {
     const initialBase =
       this.workdir === undefined
         ? CWD_BASE
         : this.deriveBaseFromCdTarget(CWD_BASE, this.workdir);
     const candidates = this.collectPathCandidates(rootNode, initialBase);
+    for (const salvaged of salvagedRoots) {
+      this.walkForCandidates(salvaged, UNKNOWN_BASE, candidates);
+    }
     return {
       externalAccesses: this.withWorkdirExternal(
         this.projectExternalPaths(candidates),

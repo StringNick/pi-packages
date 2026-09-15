@@ -65,7 +65,7 @@ export class BashProgram {
         const { externalAccesses, ruleCandidates } = new BashPathResolver(
           normalizer,
           options?.workdir,
-        ).resolve(tree.rootNode);
+        ).resolve(tree.rootNode, salvaged);
         return new BashProgram(
           command,
           [
