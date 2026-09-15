@@ -5,7 +5,6 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { buildParentContext } from "#src/session/context";
 import type { ModelRegistry } from "#src/session/model-resolver";
-import { renderProjectContext } from "#src/session/project-context";
 import type { SessionContext, ThinkingLevel } from "#src/types";
 
 /**
@@ -13,17 +12,17 @@ import type { SessionContext, ThinkingLevel } from "#src/types";
  * `before_agent_start`.
  *
  * A narrow structural slice of Pi's `BuildSystemPromptOptions` holding the
- * layers an operator wrote and nothing Pi or a tool contributed. `skills` is
+ * layers an operator wrote that describe no single session. `skills` is
  * excluded for the reason ADR 0006 cuts the catalogue: the child loads its
- * own. `promptGuidelines` is excluded because Pi derives it per session from
+ * own. `contextFiles` is excluded for the same reason — the block names each
+ * file by absolute path, so the child resolves it against its own directory
+ * (#918). `promptGuidelines` is excluded because Pi derives it per session from
  * the tools actually in the registry, so inheriting the parent's would assert
  * guidance for tools the child may not hold — the defect ADR 0008 removed with
  * the `<sub_agent_context>` block. `selectedTools` and `toolSnippets` are
  * excluded because the tool surface is node-local prose.
  */
 export interface ParentPromptOptions {
-  /** Context files (AGENTS.md and kin) Pi loaded for the parent session. */
-  contextFiles?: Array<{ path: string; content: string }>;
   /** Custom system prompt (`--system-prompt`), when the parent runs one. */
   customPrompt?: string;
   /** Appended system prompt text (`--append-system-prompt`). */
@@ -82,11 +81,12 @@ export function buildParentSnapshot(
 /**
  * Compose the parent's operator-authored parts into an identity a child may
  * adopt, in the order Pi's own `buildSystemPrompt` composes them: the custom
- * prompt, then the appended prompt, then the project-context block.
+ * prompt, then the appended prompt.
  *
  * The result is what Pi would assemble for a session with a custom prompt and
- * no tools or skills, so a host that re-homes it sees text shaped the way its
- * own harness produces — not Pi's base preamble.
+ * no tools, skills, or context files, so a host that re-homes it sees text
+ * shaped the way its own harness produces — not Pi's base preamble. The child
+ * appends its own directory's project context after it.
  *
  * Returns undefined when no part survives, which routes the caller to the
  * generic base rather than back to the full prompt.
@@ -98,7 +98,5 @@ function buildPortablePrompt(options?: ParentPromptOptions): string | undefined 
   if (custom) sections.push(custom);
   const appended = options.appendSystemPrompt?.trim();
   if (appended) sections.push(appended);
-  const projectContext = renderProjectContext(options.contextFiles);
-  if (projectContext) sections.push(projectContext);
   return sections.length > 0 ? sections.join("\n\n") : undefined;
 }

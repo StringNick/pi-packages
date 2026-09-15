@@ -93,11 +93,12 @@ export function buildAgentPrompt(
  * The project-context section a child contributes for itself, or "" when the
  * identity it adopted already describes its directory.
  *
- * Only a child a `WorkspaceProvider` relocated needs one: its inherited block
- * was cut with the rest of the session-resolved tail, because that block named
- * the parent's files by absolute path (#918). Rendering it here rather than
- * letting Pi append it keeps the agent's own body last, which is what
- * `prompt_mode: replace` promises.
+ * Two children need one. A child a `WorkspaceProvider` relocated had its
+ * inherited block cut with the rest of the session-resolved tail, because that
+ * block named the parent's files by absolute path (#918); and a `portable`
+ * child adopts operator-authored text that carries no project context at all
+ * (ADR 0009). Rendering it here rather than letting Pi append it keeps the
+ * agent's own body last, which is what `prompt_mode: replace` promises.
  *
  * A directory that resolves no context file contributes nothing — project
  * instructions describe a project this child is not working in.
@@ -109,7 +110,7 @@ function ownProjectContext(
 ): string {
   if (!inherited || !loadProjectContext) return "";
   const adoptedDescribesOwnDirectory =
-    inherited.strategy === "portable" || cwd === inherited.cwd;
+    inherited.strategy !== "portable" && cwd === inherited.cwd;
   if (adoptedDescribesOwnDirectory) return "";
   const block = loadProjectContext(cwd);
   return block ? `\n\n${block}` : "";

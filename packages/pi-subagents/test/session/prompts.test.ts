@@ -1013,18 +1013,13 @@ describe("buildAgentPrompt", () => {
       "- When asked about: custom providers (docs/custom-provider.md), pi packages (docs/packages.md)",
     ].join("\n");
 
-    /** What the parent's operator-authored layers render to. */
-    const PORTABLE = [
-      "<project_context>",
-      "",
-      "Project-specific instructions and guidelines:",
-      "",
-      '<project_instructions path="/parent/AGENTS.md">',
-      "Repo rules.",
-      "</project_instructions>",
-      "",
-      "</project_context>",
-    ].join("\n");
+    /**
+     * What the parent's operator-authored layers render to: its custom prompt
+     * and its appended prompt. Project context is not among them — it names
+     * files by absolute path, so each child resolves it against its own
+     * directory (#918).
+     */
+    const PORTABLE = ["You are a specialist.", "", "Extra instructions."].join("\n");
 
     function agentConfig(promptMode: "append" | "replace"): AgentConfig {
       return {
@@ -1061,6 +1056,51 @@ describe("buildAgentPrompt", () => {
           expect(prompt).not.toContain("custom providers (docs/custom-provider.md)");
           expect(prompt).not.toContain("pi packages (docs/packages.md)");
         });
+
+        it("resolves project context against the child's own directory", () => {
+          const prompt = buildAgentPrompt(
+            agentConfig(promptMode),
+            "/workspace",
+            env,
+            {
+              systemPrompt: PI_BASE,
+              cwd: PARENT_CWD,
+              strategy: "portable",
+              portablePrompt: PORTABLE,
+            },
+            (cwd) =>
+              renderProjectContext([
+                { path: `${cwd}/AGENTS.md`, content: "Worktree rules." },
+              ]),
+          );
+
+          expect(prompt).toContain('<project_instructions path="/workspace/AGENTS.md">');
+          expect(prompt.indexOf(PORTABLE)).toBeLessThan(
+            prompt.indexOf("<project_context>"),
+          );
+        });
+
+        it("resolves it even when the child shares the parent's directory", () => {
+          // Unlike a full identity, a portable one carries no project context
+          // to inherit, so the child supplies its own wherever it runs.
+          const prompt = buildAgentPrompt(
+            agentConfig(promptMode),
+            PARENT_CWD,
+            env,
+            {
+              systemPrompt: PI_BASE,
+              cwd: PARENT_CWD,
+              strategy: "portable",
+              portablePrompt: PORTABLE,
+            },
+            (cwd) =>
+              renderProjectContext([
+                { path: `${cwd}/AGENTS.md`, content: "Repo rules." },
+              ]),
+          );
+
+          expect(prompt).toContain(`<project_instructions path="${PARENT_CWD}/AGENTS.md">`);
+        });
       });
     }
 
@@ -1088,6 +1128,25 @@ describe("buildAgentPrompt", () => {
           portablePrompt: "   \n\n  ",
         });
         expect(prompt.startsWith("# Role")).toBe(true);
+        expect(prompt).not.toContain("pi packages (docs/packages.md)");
+      });
+
+      it("still resolves the child's own project instructions", () => {
+        // The fallback is about never re-embedding the harness base; project
+        // context is not part of it, and the child's own is always safe.
+        const prompt = buildAgentPrompt(
+          agentConfig("append"),
+          "/workspace",
+          env,
+          { systemPrompt: PI_BASE, cwd: PARENT_CWD, strategy: "portable" },
+          (cwd) =>
+            renderProjectContext([
+              { path: `${cwd}/AGENTS.md`, content: "Worktree rules." },
+            ]),
+        );
+
+        expect(prompt.startsWith("# Role")).toBe(true);
+        expect(prompt).toContain('<project_instructions path="/workspace/AGENTS.md">');
         expect(prompt).not.toContain("pi packages (docs/packages.md)");
       });
     });

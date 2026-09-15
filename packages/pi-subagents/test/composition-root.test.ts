@@ -483,11 +483,15 @@ describe("composition root: prompt-inheritance wiring", () => {
   }
 
   it("captures the parent's prompt options and renders them into the spawn snapshot", async () => {
+    // Pi hands over the whole options object, project context included, so the
+    // exact assertion is what pins that the snapshot leaves that block behind
+    // for each child to resolve against its own directory (#918).
     const [params] = await spawnAfterParentTurn({
+      customPrompt: "You are a specialist.",
       contextFiles: [{ path: "/repo/AGENTS.md", content: "Repo rules." }],
     });
 
-    expect(params.snapshot.portablePrompt).toContain('<project_instructions path="/repo/AGENTS.md">');
+    expect(params.snapshot.portablePrompt).toBe("You are a specialist.");
   });
 
   it("leaves the snapshot's portable parts absent when the parent has run no turn", async () => {
