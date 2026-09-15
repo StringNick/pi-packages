@@ -15,6 +15,8 @@ export interface TSNode {
   readonly text: string;
   /** Absolute byte offset of this node's start in the parsed source. */
   readonly startIndex: number;
+  /** Absolute byte offset one past this node's end in the parsed source. */
+  readonly endIndex: number;
   readonly childCount: number;
   /** False for anonymous tokens (operators, delimiters); true for named nodes. */
   readonly isNamed: boolean;

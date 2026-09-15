@@ -7,6 +7,8 @@ import type { TSNode } from "#src/access-intent/bash/parser";
  * Fills only the fields those helpers read; `children` drives both `childCount`
  * and `child(i)`, so a node's structural shape (delimiters plus a
  * `variable_name`, a quoted string's inner content) can be expressed directly.
+ * The node is placed at offset zero, so its span is its own text — a test whose
+ * subject is a byte offset wants a real parse, not this.
  * A fake node is a well-formed one: it reports no parse error and no preceding
  * sibling, because the helpers this builds for read neither.
  *
@@ -23,6 +25,7 @@ export function makeTSNode(
     type,
     text,
     startIndex: 0,
+    endIndex: text.length,
     childCount: children.length,
     isNamed: true,
     hasError: false,
