@@ -27,6 +27,7 @@ import {
 } from "./extension-config";
 import type { ResolvedPolicyPaths } from "./policy-loader";
 import { syncPermissionSystemStatus } from "./status";
+import { getPiPermissionHostPolicy } from "#src/host-policy";
 
 /** Read-only view of the current config — for consumers that only read. */
 export interface ConfigReader {
@@ -108,6 +109,13 @@ export class ConfigStore implements SessionConfigStore, CommandConfigStore {
       { includeProjectScope: projectTrusted },
     );
     const runtimeConfig = normalizePermissionSystemConfig(mergeResult.merged);
+    const hostPolicy = getPiPermissionHostPolicy();
+    if (hostPolicy) {
+      runtimeConfig.yoloMode = false;
+      runtimeConfig.authorizerChain = [];
+      runtimeConfig.piInfrastructureReadPaths = [];
+      runtimeConfig.shellTools = hostPolicy.shellTools;
+    }
     this.config = runtimeConfig;
 
     if (ctx?.hasUI) {

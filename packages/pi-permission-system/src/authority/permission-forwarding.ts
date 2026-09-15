@@ -102,6 +102,13 @@ export interface ForwardedPromptDisplay {
  */
 export interface ForwardedSessionApproval {
   grants: readonly ApprovalGrant[];
+  exactGrants?: readonly ApprovalGrant[];
+  reusableChoices?: readonly {
+    surface: string;
+    patterns: readonly string[];
+    patternKind: "exact" | "suggested";
+    matchLabel?: string;
+  }[];
 }
 
 /**
@@ -175,6 +182,7 @@ export type ForwardedPermissionRequest = {
    * omits it, and the serving dialog then offers no scope choice).
    */
   sessionApproval?: ForwardedSessionApproval;
+  sessionApprovals?: readonly ForwardedSessionApproval[];
   /**
    * The child-fixed access intent (ADR 0008 §2). Optional for version-skew
    * tolerance: an older child omits it, and the serving node floors to `ask`
@@ -184,6 +192,8 @@ export type ForwardedPermissionRequest = {
 };
 
 export type ForwardedPermissionResponse = {
+  /** Cancellation is not a human denial; preserved across every serving hop. */
+  confirmationUnavailable?: true;
   approved: boolean;
   state: PermissionDecisionState;
   denialReason?: string;
@@ -289,7 +299,7 @@ export function createPermissionForwardingLocation(
  * is draining its inbox. `"env"` means the target lives in another process,
  * where that signal is unavailable.
  */
-export type PermissionForwardingTargetSource = "registry" | "env";
+export type PermissionForwardingTargetSource = "registry" | "env" | "host-remote";
 
 /** The resolved forwarding target together with how it was found. */
 export interface PermissionForwardingTarget {
@@ -329,10 +339,10 @@ export function resolvePermissionForwardingTarget(options: {
   if (options.registry && options.sessionId) {
     const entry = options.registry.get(options.sessionId);
     const resolved = normalizePermissionForwardingSessionId(
-      entry?.parentSessionId,
+      entry?.servingSessionId ?? entry?.parentSessionId,
     );
     if (resolved && namesAnotherSession(resolved)) {
-      return { sessionId: resolved, source: "registry" };
+      return { sessionId: resolved, source: entry?.servingRemote ? "host-remote" : "registry" };
     }
   }
 

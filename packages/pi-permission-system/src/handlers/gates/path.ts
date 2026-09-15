@@ -73,7 +73,7 @@ export function describePathGate(
     surface,
     input: { path: filePath },
     payload,
-    sessionApproval: SessionApproval.single(surface, pattern),
+    sessionApproval: SessionApproval.single(surface, pattern, accessPath.value()),
     promptDetails: buildPathGatePromptDetails(
       tcc,
       filePath,

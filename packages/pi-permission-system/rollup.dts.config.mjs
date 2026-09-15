@@ -7,6 +7,12 @@ import { dts } from "rollup-plugin-dts";
 const external = [/^@earendil-works\//, /^node:/];
 
 export default [
+  {
+    input: "src/host-api.ts",
+    output: { file: "dist/host.d.ts", format: "es" },
+    external,
+    plugins: [dts({ tsconfig: "./tsconfig.json" })],
+  },
   // . entry: cross-extension service contract (Symbol.for() accessors,
   // PermissionsService, permission-events types and channel constants)
   {

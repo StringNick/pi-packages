@@ -16,11 +16,15 @@ import {
  * (#810).
  */
 export class SessionApproval {
-  private constructor(readonly grants: readonly ApprovalGrant[]) {}
+  private constructor(
+    readonly grants: readonly ApprovalGrant[],
+    readonly exactGrants: readonly ApprovalGrant[] = grants,
+    readonly reusableChoices?: ForwardedSessionApproval["reusableChoices"],
+  ) {}
 
   /** Create an approval for a single pattern (the common case). */
-  static single(surface: string, pattern: string): SessionApproval {
-    return new SessionApproval([{ surface, pattern }]);
+  static single(surface: string, pattern: string, exactPattern = pattern): SessionApproval {
+    return new SessionApproval([{ surface, pattern }], [{ surface, pattern: exactPattern }]);
   }
 
   /**
@@ -28,8 +32,21 @@ export class SessionApproval {
    * bash external-directory ask whose uncovered paths proved different
    * directions). Returns a defensive copy.
    */
-  static forGrants(grants: readonly ApprovalGrant[]): SessionApproval {
-    return new SessionApproval([...grants]);
+  static forGrants(grants: readonly ApprovalGrant[], exactGrants: readonly ApprovalGrant[] = grants): SessionApproval {
+    return new SessionApproval([...grants], [...exactGrants]);
+  }
+
+  static multiple(
+    surface: string,
+    patterns: readonly string[],
+    exactPatterns: readonly string[] = patterns,
+    reusableChoices?: ForwardedSessionApproval["reusableChoices"],
+  ): SessionApproval {
+    return new SessionApproval(
+      patterns.map((pattern) => ({ surface, pattern })),
+      exactPatterns.map((pattern) => ({ surface, pattern })),
+      reusableChoices,
+    );
   }
 
   /** Whether this approval carries anything for the session store to record. */
@@ -48,7 +65,7 @@ export class SessionApproval {
   atWidth(width: SessionGrantWidth): SessionApproval {
     return width === "proven"
       ? this
-      : new SessionApproval(this.grants.map(widenGrant));
+      : new SessionApproval(this.grants.map(widenGrant), this.exactGrants.map(widenGrant));
   }
 
   /**
@@ -57,6 +74,12 @@ export class SessionApproval {
    * Returns a defensive copy.
    */
   toForwardedData(): ForwardedSessionApproval {
-    return { grants: [...this.grants] };
+    return {
+      grants: [...this.grants],
+      ...(JSON.stringify(this.grants) !== JSON.stringify(this.exactGrants)
+        ? { exactGrants: [...this.exactGrants] }
+        : {}),
+      ...(this.reusableChoices ? { reusableChoices: this.reusableChoices } : {}),
+    };
   }
 }

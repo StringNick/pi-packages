@@ -23,6 +23,7 @@ export type PermissionGateResult =
        * a width for a grant that never happened.
        */
       sessionGrant?: { width: SessionGrantWidth };
+      reusableApprovals?: PermissionPromptDecision["reusableApprovals"];
     }
   | { action: "block"; decidedBy: DecisionSource; reason: string };
 
@@ -114,6 +115,13 @@ export async function applyPermissionGate(
         action: "block",
         decidedBy,
         reason: messages.refusedReason(decision),
+      };
+    }
+    if (decision.reusableApprovals || decision.reusableApproval) {
+      return {
+        action: "allow",
+        decidedBy,
+        reusableApprovals: decision.reusableApprovals ?? [decision.reusableApproval!],
       };
     }
     if (

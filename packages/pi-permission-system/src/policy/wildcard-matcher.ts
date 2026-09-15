@@ -47,6 +47,21 @@ export function compileWildcardPattern<TState>(
   state: TState,
   options?: WildcardMatchOptions,
 ): CompiledWildcardPattern<TState> {
+  // Exact shell arguments can contain literal wildcard characters. Keep their
+  // equality semantics inside the same native matcher, not a second authorizer.
+  if (pattern.startsWith("literal-v1:")) {
+    let literal: unknown;
+    try { literal = JSON.parse(pattern.slice("literal-v1:".length)); } catch { /* fail closed */ }
+    return {
+      pattern, state,
+      matches: (value) => {
+        if (typeof literal !== "string") return false;
+        const left = foldSeparators(value, options);
+        const right = foldSeparators(literal, options);
+        return options?.caseInsensitive ? left.toLowerCase() === right.toLowerCase() : left === right;
+      },
+    };
+  }
   const expanded = foldSeparators(expandHomePath(pattern), options);
   let escaped = expanded
     .split("*")

@@ -1,5 +1,6 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getAgentDir, getPackageDir } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, getPackageDir, SessionManager } from "@earendil-works/pi-coding-agent";
+import { registerHostPermissionFactory, type HostChildPermissionEvaluator } from "./host-api";
 import { warmBashParser } from "#src/access-intent/bash/parser";
 import { buildResolvedIntentFromMatchValues } from "#src/access-intent/input-normalizer";
 import {
@@ -60,10 +61,20 @@ import {
   PermissionGateHandler,
   SessionLifecycleHandler,
   SessionTurnPrep,
-} from "./handlers";
+} from "#src/handlers/index";
 import { getPermissionsService, type PermissionsService } from "./service";
+import { getPiPermissionHostPolicy } from "#src/host-policy";
 
 export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
+  createPermissionRuntime(pi);
+}
+
+/** One construction path for native hooks and backend-hosted child evaluation. */
+function createPermissionRuntime(
+  pi: ExtensionAPI,
+  hosted?: { ctx: ExtensionContext; agentName: string; tools: string[] },
+): HostChildPermissionEvaluator | undefined {
+  let currentSessionId: string | null = null;
   const agentDir = getAgentDir();
   // getPackageDir() is Pi's own install dir; auto-allow it for read-only tools
   // so the agent can read Pi's bundled docs/examples regardless of layout.
@@ -107,12 +118,18 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
   // close over it; every call runs after configStore is assigned below. yolo is
   // a composition-stage ask→allow rewrite (#526) that the gate runner extends
   // to asks synthesized after resolution (#712), so both share this reader.
-  const isYoloEnabled = (): boolean => isYoloModeEnabled(configStore.current());
+  const isYoloEnabled = (): boolean => {
+    const hostPolicy = getPiPermissionHostPolicy();
+    return hostPolicy
+      ? hostPolicy.isFullAccess(currentSessionId)
+      : isYoloModeEnabled(configStore.current());
+  };
 
   const permissionManager = new PermissionManager({
     agentDir,
     flavor: hostFlavor,
     isYoloEnabled,
+    getCurrentSessionId: () => currentSessionId,
   });
 
   const logger = new PermissionSessionLogger({
@@ -234,7 +251,7 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
   configStore.refresh(undefined, false);
 
   const configPath = getGlobalConfigPath(agentDir);
-  registerPermissionSystemCommand(pi, {
+  if (!hosted) registerPermissionSystemCommand(pi, {
     config: configStore,
     configPath,
     getActiveAgentConfigRules: () =>
@@ -272,7 +289,7 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     (sessionId) => getPermissionsService(sessionId) !== undefined,
     logger,
   );
-  const unsubSubagentLifecycle = subscribeSubagentLifecycle(
+  const unsubSubagentLifecycle = hosted ? () => {} : subscribeSubagentLifecycle(
     pi.events,
     subagentRegistry,
     childNodeAudit,
@@ -292,8 +309,8 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
   );
 
   const toolRegistry = {
-    getAll: () => pi.getAllTools(),
-    getActive: () => pi.getActiveTools(),
+    getAll: () => hosted ? pi.getAllTools().filter((tool) => hosted.tools.includes(tool.name)) : pi.getAllTools(),
+    getActive: () => hosted ? hosted.tools : pi.getActiveTools(),
     setActive: (names: string[]) => pi.setActiveTools(names),
   };
 
@@ -326,6 +343,7 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     authorizerSelection,
     reporter,
     isYoloEnabled,
+    () => currentSessionId,
   );
   // This node's ancestors in the current process. The gates read their
   // fact-shaping registrations through the inheriting lookups below, so a
@@ -334,7 +352,7 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
   // Registration itself is untouched: the service's registrars still write to
   // the undecorated registries, so an entry lands in this node alone.
   const ancestorNodes = new AncestorNodes(
-    serviceLifecycle,
+    hosted ? { currentSessionId: () => currentSessionId } : serviceLifecycle,
     subagentRegistry,
     getPermissionsService,
   );
@@ -356,13 +374,61 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     gateRunner,
   );
 
-  pi.on("session_start", (event, ctx) =>
-    lifecycle.handleSessionStart(event, ctx),
-  );
+  if (hosted) {
+    const { ctx, agentName } = hosted;
+    currentSessionId = ctx.sessionManager.getSessionId();
+    session.refreshConfig(ctx, ctx.isProjectTrusted());
+    session.resetForNewSession(ctx, ctx.isProjectTrusted());
+    let disposed = false;
+    let evaluating = false;
+    return {
+      async evaluate(call, signal) {
+        signal.throwIfAborted();
+        if (disposed || evaluating) throw new Error("Hosted permission evaluator is unavailable");
+        evaluating = true;
+        try {
+          // The broker owns admission wrapping. Do not recurse through the
+          // child interceptor or accept a decision supplied over the wire.
+          const result = await gates.handleToolCall(call, { ...ctx, signal }, { agentName });
+          signal.throwIfAborted();
+          return result;
+        } finally { evaluating = false; }
+      },
+      dispose() {
+        if (disposed) return;
+        disposed = true;
+        session.shutdown();
+        unsubSubagentLifecycle();
+      },
+    };
+  }
+  let unregisterHost: (() => void) | undefined;
+  pi.on("session_start", async (event, ctx) => {
+    currentSessionId = ctx.sessionManager.getSessionId();
+    await lifecycle.handleSessionStart(event, ctx);
+    unregisterHost?.();
+    if (!getPiPermissionHostPolicy()) return;
+    unregisterHost = registerHostPermissionFactory(currentSessionId, (options) => {
+      // Empty, nonpersistent native identity for policy only: no transcript
+      // replica, prompt loop, or writes to the child's canonical session.
+      const sessionManager = SessionManager.inMemory(options.cwd, { id: options.sessionId });
+      return createPermissionRuntime(pi, {
+        agentName: options.agentName,
+        tools: options.tools,
+        ctx: { ...ctx, sessionManager, cwd: options.cwd, hasUI: false, mode: "print",
+          isProjectTrusted: () => options.projectTrusted, signal: undefined },
+      })!;
+    });
+  });
   pi.on("resources_discover", (event, ctx) =>
     lifecycle.handleResourcesDiscover(event, ctx),
   );
-  pi.on("session_shutdown", () => lifecycle.handleSessionShutdown());
+  pi.on("session_shutdown", async () => {
+    unregisterHost?.();
+    unregisterHost = undefined;
+    await lifecycle.handleSessionShutdown();
+    currentSessionId = null;
+  });
   pi.on("before_agent_start", (event, ctx) => agentPrep.handle(event, ctx));
   pi.on("input", (event, ctx) => gates.handleInput(event, ctx));
   pi.on(

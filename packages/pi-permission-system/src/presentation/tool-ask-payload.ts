@@ -18,6 +18,8 @@ export interface ToolAskFacts {
   input?: unknown;
   /** Renders the per-tool input preview; absent means no preview evidence. */
   formatter?: ToolPreviewFormatter;
+  /** Complete paths projected by a trusted host for a multi-path tool. */
+  accessPaths?: readonly string[];
 }
 
 /**
@@ -43,7 +45,9 @@ export function buildToolAskPayload(facts: ToolAskFacts): PromptPayload {
       commandContext: check.commandContext ?? null,
       executedUnit: check.executedUnit ?? null,
     },
-    evidence: bash
+    evidence: facts.accessPaths && facts.accessPaths.length > 0
+      ? facts.accessPaths.map((path) => ({ label: "affected path", text: path, detail: null }))
+      : bash
       ? fullCommandEvidence(facts)
       : inputPreviewEvidence(facts, mcp),
     annotations: [],

@@ -42,6 +42,8 @@ export type DecisionSource =
    * yolo grant over a synthesized ask legible.
    */
   | { kind: "yolo"; pattern: string | null }
+  /** A Core host policy allowed this bounded request without prompting. */
+  | { kind: "host_policy"; policy: string }
   /** A Pi infrastructure read, allowed by containment rather than by a rule. */
   | { kind: "infrastructure_read" }
   /**
@@ -136,6 +138,10 @@ function narrowSource(
     case "yolo":
       return isNullableString(candidate.pattern)
         ? { kind: "yolo", pattern: candidate.pattern }
+        : undefined;
+    case "host_policy":
+      return typeof candidate.policy === "string"
+        ? { kind: "host_policy", policy: candidate.policy }
         : undefined;
     case "infrastructure_read":
       return { kind: "infrastructure_read" };

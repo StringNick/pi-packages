@@ -4,6 +4,7 @@ import { normalizeInput } from "#src/access-intent/input-normalizer";
 import {
   PATH_SURFACES,
   surfaceFamilyOf,
+  surfaceFamilyMembers,
 } from "#src/access-intent/path-surfaces";
 import { classifyToolKind } from "#src/access-intent/tool-kind";
 import {
@@ -40,6 +41,8 @@ import {
   synthesizeBaseline,
   synthesizeDefaults,
 } from "./synthesize";
+
+import { getPiPermissionHostPolicy } from "#src/host-policy";
 
 const SPECIAL_PERMISSION_KEYS = new Set(["external_directory", "path"]);
 
@@ -113,12 +116,14 @@ export interface PermissionManagerOptions extends PolicyLoaderOptions {
    * yolo disabled.
    */
   isYoloEnabled?: () => boolean;
+  getCurrentSessionId?: () => string | null;
 }
 
 export class PermissionManager implements ScopedPermissionManager {
   private readonly agentDir: string | undefined;
   private readonly flavor: PathFlavor;
   private readonly isYoloEnabled: () => boolean;
+  private readonly getCurrentSessionId: () => string | null;
   private loader: PolicyLoader;
   private readonly resolvedPermissionsCache = new Map<
     string,
@@ -129,6 +134,7 @@ export class PermissionManager implements ScopedPermissionManager {
     this.agentDir = options.agentDir;
     this.flavor = options.flavor ?? posixPathFlavor;
     this.isYoloEnabled = options.isYoloEnabled ?? YOLO_DISABLED;
+    this.getCurrentSessionId = options.getCurrentSessionId ?? (() => null);
     this.loader =
       options.policyLoader ??
       new FilePolicyLoader(
@@ -180,10 +186,15 @@ export class PermissionManager implements ScopedPermissionManager {
       return cached.value;
     }
 
-    const globalConfig = this.loader.loadGlobalConfig();
-    const projectConfig = this.loader.loadProjectConfig();
-    const agentConfig = this.loader.loadAgentConfig(agentName);
-    const projectAgentConfig = this.loader.loadProjectAgentConfig(agentName);
+    const hostPolicy = getPiPermissionHostPolicy();
+    const globalConfig = hostPolicy
+      ? { permission: hostPolicy.permission }
+      : this.loader.loadGlobalConfig();
+    const projectConfig = hostPolicy ? {} : this.loader.loadProjectConfig();
+    const agentConfig = hostPolicy ? {} : this.loader.loadAgentConfig(agentName);
+    const projectAgentConfig = hostPolicy
+      ? {}
+      : this.loader.loadProjectAgentConfig(agentName);
 
     // Merge permission objects across scopes (lowest → highest precedence),
     // building a parallel origin map that tracks which scope contributed each
@@ -310,9 +321,24 @@ export class PermissionManager implements ScopedPermissionManager {
     sessionRules?: Ruleset,
   ): PermissionCheckResult {
     const { composedRules } = this.resolvePermissions(intent.agentName);
-    const composedWithSession: Ruleset = sessionRules?.length
-      ? [...composedRules, ...sessionRules]
-      : composedRules;
+    const hostRules: Ruleset =
+      getPiPermissionHostPolicy()?.getRules(this.getCurrentSessionId()).flatMap((rule) =>
+        (surfaceFamilyMembers(rule.surface) ?? [rule.surface]).map((surface) => ({
+          ...rule, surface,
+          action: "allow" as const,
+          layer: "session" as const,
+          origin: "session" as const,
+        })),
+      ) ?? [];
+    const composedWithSession: Ruleset = [
+      ...composedRules,
+      ...hostRules,
+      // Forwarded native session rules carry no Core execution-mode scope.
+      // A scoped shell can consume only the host's invocation-filtered grants.
+      ...(intent.surface === "bash" &&
+          getPiPermissionHostPolicy()?.hasShellExecutionScope?.(this.getCurrentSessionId())
+        ? [] : sessionRules ?? []),
+    ];
     // Apply the yolo rewrite post-cache so the resolved-permissions cache and
     // the display surfaces (getComposedConfigRules / getToolPermission) stay
     // yolo-free — only the resolution path sees the ask→allow rewrite (#526).

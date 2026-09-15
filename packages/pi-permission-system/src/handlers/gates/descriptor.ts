@@ -19,6 +19,8 @@ export interface GateDescriptor {
   surface: string;
   /** Input passed to checkPermission. */
   input: unknown;
+  /** Complete parsed shell units supplied to the Core host policy. */
+  commandUnits?: NonNullable<PermissionCheckResult["commandUnits"]>;
   /**
    * The complete structured description of this ask (ADR 0011 §2).
    *

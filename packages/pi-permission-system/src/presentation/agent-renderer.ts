@@ -73,6 +73,8 @@ export function renderRefusal(
   // bare fact rather than the responder's identity, which stays undisclosed.
   const decidedElsewhere = decidedBy.kind === "forwarded";
   switch (decider.kind) {
+    case "host_policy":
+      return renderPolicyDenial(payload, denialReason, budget);
     case "authorizer":
       return renderAuthorizerDenial(
         payload,

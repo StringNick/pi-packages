@@ -99,6 +99,7 @@ export async function requestPermissionDecision(
       title,
       rendered.lines.join("\n"),
       options,
+      payload,
     ),
     "select",
   );

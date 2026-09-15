@@ -4,6 +4,7 @@ import { getNonEmptyString, toRecord } from "#src/value-guards";
 import type { AccessIntent, ResolvedAccessIntent } from "./access-intent";
 import { createMcpPermissionTargets } from "./mcp-targets";
 import { PATH_SURFACES, surfaceFamilyOf } from "./path-surfaces";
+import { directMcpApproval } from "#src/access-intent/direct-mcp-tool";
 import { classifyToolKind } from "./tool-kind";
 
 /**
@@ -140,6 +141,18 @@ export function normalizeInput(
   input: unknown,
   configuredMcpServerNames: readonly string[],
 ): NormalizedInput {
+  const directMcp = directMcpApproval(toolName, input, configuredMcpServerNames);
+  if (directMcp) {
+    return {
+      surface: toolName,
+      values: [directMcp.argumentPattern],
+      resultExtras: {
+        target: toolName,
+        reusableApprovalChoices: directMcp.choices,
+      },
+    };
+  }
+
   switch (classifyToolKind(toolName)) {
     // --- Skill ---
     case "skill": {

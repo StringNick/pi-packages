@@ -12,12 +12,14 @@ import {
 } from "#src/presentation/agent-renderer";
 import { renderReviewLogFacts } from "#src/presentation/review-log-renderer";
 import type { SessionApprovalRecorder } from "#src/session/session-approval-recorder";
+import type { PermissionCheckResult } from "#src/types";
+import { getPiPermissionHostPolicy } from "#src/host-policy";
 import type {
   DecisionEventFacts,
   GateDescriptor,
   GateResult,
 } from "./descriptor";
-import { isGateBypass, preResolvedCheckOf } from "./descriptor";
+import { isGateBypass, isGateDescriptor, preResolvedCheckOf } from "./descriptor";
 import { buildDecisionEvent, resolveYoloGrant } from "./helpers";
 import type { GateOutcome } from "./types";
 
@@ -43,6 +45,7 @@ export class GateRunner {
      * effect — the same closure `PermissionManager` receives.
      */
     private readonly isYoloEnabled: () => boolean,
+    private readonly getCurrentSessionId: () => string | null = () => null,
   ) {}
 
   /**
@@ -73,6 +76,85 @@ export class GateRunner {
     return this.runDescriptor(gate, agentName, requestId);
   }
 
+  /** All gates belong to one shell invocation; a combined choice is once-only. */
+  async runShell(gates: GateResult[], agentName: string | null): Promise<GateOutcome> {
+    const resolved: GateResult[] = gates.map((gate) => isGateDescriptor(gate)
+      ? { ...gate, preCheck: this.resolveCheck(gate, agentName) }
+      : gate);
+    // A denied path or command must stop execution before asking for anything.
+    const denied = resolved.find((gate) => isGateDescriptor(gate) && gate.preCheck?.state === "deny");
+    if (denied) return this.run(denied, agentName);
+    const host = getPiPermissionHostPolicy();
+    const asks = resolved.filter((gate): gate is GateDescriptor => {
+      if (!isGateDescriptor(gate)) return false;
+      const check = gate.preCheck!;
+      return check.state === "ask" && check.source !== "session" &&
+        !resolveYoloGrant(check, this.isYoloEnabled()) &&
+        host?.shouldAutoApprove(this.hostInput(gate, check)) !== true;
+    });
+    let runner: GateRunner = this;
+    if (asks.length > 1) {
+      let decision: Promise<PermissionPromptDecision> | undefined;
+      // One combined prompt may save every asking surface's rule; the decision
+      // itself stays once-only and scoped to these immutable gates.
+      const combinedApprovals = asks
+        .map((gate) => gate.sessionApproval?.toForwardedData())
+        .filter((approval): approval is NonNullable<typeof approval> => approval !== undefined);
+      const combinedPrompter: AskEscalator = {
+        escalate: (details) => {
+          if (!asks.some((gate) => gate.payload === details.payload)) return this.prompter.escalate(details);
+          decision ??= this.prompter.escalate({
+            ...details,
+            accessIntent: undefined,
+            ...(combinedApprovals.length === 1
+              ? { sessionApproval: combinedApprovals[0] }
+              : combinedApprovals.length > 1
+                ? { sessionApprovals: combinedApprovals }
+                : { sessionApproval: undefined }),
+            payload: {
+              ...details.payload,
+              evidence: asks.flatMap((gate) => [
+                { label: `Required permission: ${gate.surface}`, text: gate.payload.request.value, detail: null },
+                ...gate.payload.evidence,
+              ]),
+            },
+          }).then((result) => ({
+            ...result,
+            // A once-only "Yes" stays once-only; a saving choice records
+            // through the decision's own reusable selections.
+            ...(result.reusableApprovals || result.reusableApproval
+              ? {}
+              : { reusableApproval: undefined, reusableApprovals: undefined }),
+          }));
+          return decision;
+        },
+      };
+      runner = new GateRunner(this.resolver, this.recorder, combinedPrompter,
+        this.reporter, this.isYoloEnabled, this.getCurrentSessionId);
+    }
+    for (const gate of resolved) {
+      const outcome = await runner.run(gate, agentName);
+      if (outcome.action === "block") return outcome;
+    }
+    return { action: "allow" };
+  }
+
+  private resolveCheck(descriptor: GateDescriptor, agentName: string | null): PermissionCheckResult {
+    return preResolvedCheckOf(descriptor) ?? this.resolver.resolve({
+      kind: "tool", surface: descriptor.surface,
+      input: descriptor.input, agentName: agentName ?? undefined,
+    });
+  }
+
+  private hostInput(descriptor: GateDescriptor, check: PermissionCheckResult) {
+    return {
+      sessionId: this.getCurrentSessionId(), surface: descriptor.surface,
+      toolName: descriptor.payload.request.invokedToolName ?? descriptor.payload.request.toolName,
+      input: descriptor.input, matchedPattern: check.matchedPattern ?? null,
+      ...(descriptor.commandUnits ? { commandUnits: descriptor.commandUnits } : {}),
+    };
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────────
 
   /**
@@ -90,14 +172,7 @@ export class GateRunner {
   ): Promise<GateOutcome> {
     // 1. Resolve permission state — what the descriptor already carries, or
     // via the resolver when it carries nothing.
-    const check =
-      preResolvedCheckOf(descriptor) ??
-      this.resolver.resolve({
-        kind: "tool",
-        surface: descriptor.surface,
-        input: descriptor.input,
-        agentName: agentName ?? undefined,
-      });
+    const check = this.resolveCheck(descriptor, agentName);
 
     // The fields every review-log write for this gate shares, whatever the
     // resolution — built once so a field added here reaches all of them. The
@@ -172,6 +247,36 @@ export class GateRunner {
       return { action: "allow" };
     }
 
+    // 2c. Core host-policy fast path. Unlike yolo this is a bounded,
+    // per-request decision. Core must independently attest any containment
+    // property it relies on; an ordinary project/session rule cannot reach
+    // this callback.
+    const hostPolicy = getPiPermissionHostPolicy();
+    const hostPolicyInput = this.hostInput(descriptor, check);
+    const hostAutoApproved =
+      check.state === "ask" && hostPolicy?.shouldAutoApprove(hostPolicyInput) === true;
+    if (hostAutoApproved) {
+      const hostDetails = hostPolicy?.describeAutoApproval?.(hostPolicyInput);
+      const hostGrant = { ...check, state: "allow" as const, origin: "builtin" as const };
+      this.reporter.writeReviewLog("permission_request.auto_approved", {
+        ...logContext,
+        resolution: "auto_approved",
+        decidedBy: { kind: "host_policy", policy: "core-request-policy" },
+        ...(hostDetails ? { hostPolicy: hostDetails } : {}),
+      });
+      this.emitDecision(
+        requestId,
+        buildDecisionEvent(
+          descriptor.decision,
+          hostGrant,
+          agentName,
+          "allow",
+          "auto_approved",
+        ),
+      );
+      return { action: "allow" };
+    }
+
     // 3. Apply the deny/ask/allow gate — always escalate on ask; the selected
     // Authorizer answers (the DenyingAuthorizer by denying with a marker).
 
@@ -201,14 +306,18 @@ export class GateRunner {
       state: check.state,
       canGrantForSession: descriptor.sessionApproval?.isRecordable ?? false,
       promptForApproval: async () => {
-        const decision = await this.prompter.escalate({
+        const prompt = () => this.prompter.escalate({
           requestId,
           payload,
           ...descriptor.promptDetails,
+          hostApprovalReason: hostPolicy?.describeApprovalRequirement?.(hostPolicyInput),
           ...(descriptor.sessionApproval
             ? { sessionApproval: descriptor.sessionApproval.toForwardedData() }
             : {}),
         });
+        const decision = hostPolicy?.runApprovalPrompt
+          ? await hostPolicy.runApprovalPrompt(requestId, prompt) : await prompt();
+        hostPolicy?.onApprovalDecision?.(decision.approved, decision.confirmationUnavailable === true);
         return decision;
       },
       writeLog: (event, details) =>
@@ -221,6 +330,13 @@ export class GateRunner {
     // 4. Determine whether session approval was granted, and at what width
     const sessionGrant =
       gateResult.action === "allow" ? gateResult.sessionGrant : undefined;
+    const selections = gateResult.action === "allow" ? gateResult.reusableApprovals : undefined;
+    if (selections?.length) {
+      const host = getPiPermissionHostPolicy();
+      const sessionId = this.getCurrentSessionId();
+      if (!host?.recordApprovals || !sessionId) throw new Error("Reusable permission storage is unavailable");
+      await host.recordApprovals(selections.map((selection) => ({ ...selection, sessionId })));
+    }
 
     // 5. Emit decision event
     this.emitDecision(

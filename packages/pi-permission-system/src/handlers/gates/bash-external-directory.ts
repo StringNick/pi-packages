@@ -113,6 +113,10 @@ export function describeBashExternalDirectoryGate(
         surface: entry.surface,
         pattern: normalizer.approvalPatternFor(entry.path),
       })),
+      uncoveredEntries.map((entry) => ({
+        surface: entry.surface,
+        pattern: entry.path.value(),
+      })),
     ),
     promptDetails: {
       source: "tool_call",

@@ -63,6 +63,22 @@ export interface PermissionCheckResult {
   matchedPattern?: string;
   command?: string;
   target?: string;
+  reusableApprovalChoices?: readonly {
+    surface: string;
+    patterns: readonly string[];
+    patternKind: "exact" | "suggested";
+    matchLabel: string;
+  }[];
+  /** Per-unit shell decisions used by the Core host policy and exact grants. */
+  commandUnits?: readonly {
+    text: string;
+    state: PermissionState;
+    matchedPattern?: string;
+    origin: RuleOrigin;
+    commandContext?: BashCommandContext;
+    wrapperKind?: string;
+    executedUnit?: string;
+  }[];
   source: "tool" | "bash" | "mcp" | "skill" | "special" | "default" | "session";
   /** Which source contributed the winning rule. */
   origin: RuleOrigin;

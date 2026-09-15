@@ -1,3 +1,4 @@
+import { getPiPermissionHostPolicy } from "#src/host-policy";
 import { BashProgram } from "#src/access-intent/bash/program";
 import { getPathBearingToolPath } from "#src/access-intent/tool-input-path";
 import {
@@ -20,6 +21,12 @@ import { describeBashExternalDirectoryGate } from "./bash-external-directory";
 import { describeBashPathGate } from "./bash-path";
 import { type GateResult, orderDenyFirst } from "./descriptor";
 import { describeExternalDirectoryGate } from "./external-directory";
+import {
+  describeHostExternalDirectoryGate,
+  describeHostPathGate,
+  getHostToolPaths,
+  resolveHostToolChecks,
+} from "./host-tool-paths";
 import { describePathGate } from "./path";
 import type { GateRunner } from "./runner";
 import { describeSkillReadGate } from "./skill-read";
@@ -87,6 +94,7 @@ export class ToolCallGatePipeline {
       this.inputs.getShellToolAliases(),
     );
     const normalizer = this.inputs.getPathNormalizer();
+    const hostToolPaths = getHostToolPaths(tcc.toolName, tcc.input);
     const bashProgram = shell?.command
       ? await BashProgram.parse(shell.command, normalizer, {
           workdir: shell.workdir,
@@ -107,6 +115,7 @@ export class ToolCallGatePipeline {
         ),
       () =>
         describePathGate(tcc, this.resolver, normalizer, this.customExtractors),
+      () => describeHostPathGate(tcc, hostToolPaths, this.resolver, normalizer),
       () =>
         describeExternalDirectoryGate(
           tcc,
@@ -114,6 +123,13 @@ export class ToolCallGatePipeline {
           this.resolver,
           normalizer,
           this.customExtractors,
+        ),
+      () =>
+        describeHostExternalDirectoryGate(
+          tcc,
+          hostToolPaths,
+          this.resolver,
+          normalizer,
         ),
       () =>
         describeBashExternalDirectoryGate(
@@ -124,20 +140,22 @@ export class ToolCallGatePipeline {
         ),
       () => describeBashPathGate(tcc, bashProgram, this.resolver, normalizer),
       () => {
-        const { toolCheck, pathAccess } = this.resolvePerToolCheck(
+        const { toolCheck, pathAccess, pathAccesses } = this.resolvePerToolCheck(
           tcc,
           shell,
           bashProgram,
           normalizer,
+          hostToolPaths,
         );
         const toolDescriptor = describeToolGate(
           tcc,
           toolCheck,
           formatter,
-          pathAccess,
+          pathAccesses ?? pathAccess,
           shell,
         );
         toolDescriptor.preCheck = toolCheck;
+        if (toolCheck.commandUnits) toolDescriptor.commandUnits = toolCheck.commandUnits;
         return toolDescriptor;
       },
     ];
@@ -151,6 +169,8 @@ export class ToolCallGatePipeline {
     for (const produce of gateProducers) {
       gates.push(await produce());
     }
+
+    if (shell && getPiPermissionHostPolicy()) return runner.runShell(orderDenyFirst(gates), tcc.agentName);
 
     for (const gate of orderDenyFirst(gates)) {
       const outcome = await runner.run(gate, tcc.agentName);
@@ -178,7 +198,12 @@ export class ToolCallGatePipeline {
     shell: ShellInvocation | null,
     bashProgram: BashProgram | null,
     normalizer: PathNormalizer,
-  ): { toolCheck: PermissionCheckResult; pathAccess?: ToolPathAccess } {
+    hostToolPaths: readonly string[],
+  ): {
+    toolCheck: PermissionCheckResult;
+    pathAccess?: ToolPathAccess;
+    pathAccesses?: readonly ToolPathAccess[];
+  } {
     if (shell) {
       if (bashProgram) {
         return {
@@ -217,6 +242,26 @@ export class ToolCallGatePipeline {
           path: accessPath,
           agentName: tcc.agentName ?? undefined,
         }),
+      };
+    }
+
+    if (hostToolPaths.length > 0) {
+      const checks = resolveHostToolChecks(
+        tcc,
+        tcc.toolName,
+        hostToolPaths,
+        this.resolver,
+        normalizer,
+      );
+      const denied = checks.filter(({ check }) => check.state === "deny");
+      const asked = checks.filter(({ check }) => check.state === "ask");
+      const relevant = denied.length > 0 ? denied : asked.length > 0 ? asked : checks;
+      return {
+        toolCheck: relevant[0]!.check,
+        pathAccesses: relevant.map(({ path, approvalPattern }) => ({
+          path,
+          approvalPattern,
+        })),
       };
     }
 

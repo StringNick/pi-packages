@@ -47,6 +47,8 @@ export interface ForwardedAskProvenance {
 /** Details passed when prompting the user for a permission decision. */
 export interface PromptPermissionDetails {
   requestId: string;
+  /** Content-free Core policy explanation; local diagnostic metadata only. */
+  hostApprovalReason?: string;
   source: PermissionReviewSource;
   agentName: string | null;
   /**
@@ -80,6 +82,14 @@ export interface PromptPermissionDetails {
    * suggestion.
    */
   sessionApproval?: ForwardedSessionApproval;
+  /**
+   * Every asking gate's session-approval suggestion when one shell invocation
+   * must approve several permission surfaces together. Each entry becomes one
+   * saved rule under a combined approval choice; the singular
+   * {@link PromptPermissionDetails.sessionApproval} stays the primary surface
+   * for labels and the single-surface flow.
+   */
+  sessionApprovals?: readonly ForwardedSessionApproval[];
   /**
    * The child-fixed access facts the raising gate computed (surface + match
    * set). Rides through the runner to the escalation edge, which completes

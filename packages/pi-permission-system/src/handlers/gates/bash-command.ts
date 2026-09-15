@@ -1,3 +1,4 @@
+import { getPiPermissionHostPolicy } from "#src/host-policy";
 import type {
   BashCommand,
   WrapperKind,
@@ -70,6 +71,11 @@ export function resolveBashCommandCheck(
   agentName: string | undefined,
   resolver: ScopedPermissionResolver,
 ): PermissionCheckResult {
+  getPiPermissionHostPolicy()?.inspectShellProgram?.(command, commands.map((unit) => ({
+    text: unit.text,
+    ...(unit.wrapperKind ? { wrapperKind: unit.wrapperKind } : {}),
+    ...(unit.context ? { commandContext: unit.context } : {}),
+  })));
   if (commands.length === 0) {
     if (isTriviallyEmptyCommand(command)) {
       return resolveOnBashSurface(command, agentName, resolver);
@@ -91,10 +97,22 @@ export function resolveBashCommandCheck(
   const results = commands.map((cmd) =>
     resolveCommandUnit(cmd, command, agentName, resolver),
   );
-  return (
-    pickMostRestrictive(results) ??
-    resolveOnBashSurface(command, agentName, resolver)
-  );
+  return {
+    ...(pickMostRestrictive(results) ?? resolveOnBashSurface(command, agentName, resolver)),
+    commandUnits: results.map((result, index) => {
+      const unit = commands[index]!;
+      return {
+        text: unit.text,
+        state: result.state,
+        source: result.source,
+        origin: result.origin,
+        matchedPattern: result.matchedPattern,
+        ...(unit.context ? { commandContext: unit.context } : {}),
+        ...(unit.wrapperKind ? { wrapperKind: unit.wrapperKind } : {}),
+        ...(unit.executedUnit ? { executedUnit: unit.executedUnit } : {}),
+      };
+    }),
+  };
 }
 
 /**

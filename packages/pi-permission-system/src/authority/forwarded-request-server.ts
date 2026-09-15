@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { getPiPermissionHostPolicy } from "#src/host-policy";
 import type { DecisionBroadcaster } from "#src/logging/decision-reporter";
 import type { DebugReviewLogger } from "#src/logging/session-logger";
 import { buildForwardedAskPayload } from "#src/presentation/forwarded-ask-payload";
@@ -124,6 +125,7 @@ function buildForwardedAskDetails(
     ...(request.sessionApproval
       ? { sessionApproval: request.sessionApproval }
       : {}),
+    ...(request.sessionApprovals ? { sessionApprovals: request.sessionApprovals } : {}),
     // Absent for a version-skew request that carried no intent — which the
     // delegation envelope reads as "surface undetermined" and fail-safes to
     // excluded, so absence must stay absence rather than become `undefined`.
@@ -321,7 +323,7 @@ export class ForwardedRequestServer implements InboxProcessor {
       location,
       requestPath,
       currentSessionId,
-      this.applyGrantScope(request, decision, forwardedPermissionLogDetails),
+      await this.applyGrantScope(request, decision, forwardedPermissionLogDetails, currentSessionId),
     );
   }
 
@@ -338,12 +340,24 @@ export class ForwardedRequestServer implements InboxProcessor {
    * The translation rewrites the grant's *scope*, never its decider: the human
    * who chose the wider scope is still the one who decided (#726).
    */
-  private applyGrantScope(
+  private async applyGrantScope(
     request: ForwardedPermissionRequest,
     decision: PermissionPromptDecision,
     logDetails: Record<string, unknown>,
-  ): PermissionPromptDecision {
+    currentSessionId: string,
+  ): Promise<PermissionPromptDecision> {
     if (decision.state !== "approved_for_serving_session") {
+      try {
+        await this.recordForwardedReusableSelections(request, decision, logDetails, currentSessionId);
+      } catch (error) {
+        return { approved: false, state: "denied", decidedBy: decision.decidedBy,
+          denialReason: `Permission could not be saved: ${error instanceof Error ? error.message : String(error)}` };
+      }
+      // Durable selections are owned by the serving Core. Do not let a child
+      // reconstruct a broader suggested session grant from this response.
+      if (decision.reusableApproval || decision.reusableApprovals) {
+        return { ...decision, state: "approved", reusableApproval: undefined, reusableApprovals: undefined };
+      }
       return decision;
     }
     if (request.sessionApproval) {
@@ -362,6 +376,58 @@ export class ForwardedRequestServer implements InboxProcessor {
       state: "approved",
       decidedBy: decision.decidedBy,
     };
+  }
+
+  /**
+   * Persist the human's selected scopes for a forwarded ask on the serving node.
+   *
+   * Durable scopes live where the store is: this serving node records them
+   * through the host policy. Shell patterns must already carry the requesting
+   * Core's execution binding; hints cannot synthesize it. A sandbox-scoped rule never
+   * authorizes host execution, and recording failures are logged, never
+   * silently dropped. A failed save denies the current invocation.
+   */
+  private async recordForwardedReusableSelections(
+    request: ForwardedPermissionRequest,
+    decision: PermissionPromptDecision,
+    logDetails: Record<string, unknown>,
+    currentSessionId: string,
+  ): Promise<void> {
+    const selections =
+      decision.reusableApprovals ?? (decision.reusableApproval ? [decision.reusableApproval] : []);
+    const durable = selections;
+    if (durable.length === 0) return;
+    const hostPolicy = getPiPermissionHostPolicy();
+    if (!hostPolicy?.recordApprovals) throw new Error("Durable permission storage is unavailable");
+    // The requesting Core runtime embeds its actual isolation/invocation.
+    // An external child without that attestation may be approved once, but
+    // cannot mint a reusable sandbox or unbound host shell permission.
+    if (durable.some((selected) => selected.surface === "bash" &&
+      selected.patterns.some((pattern) => !/^shell-v1:(?:sandbox|host):[a-f0-9]{64}:/u.test(pattern)))) {
+      throw new Error("Reusable child shell permissions require a Core execution binding");
+    }
+    try {
+      await hostPolicy
+        .recordApprovals(
+          durable.map((selected) => ({
+            sessionId: currentSessionId,
+            scope: selected.scope,
+            surface: selected.surface,
+            patterns: selected.patterns,
+          })),
+        );
+    } catch (error) {
+      this.logger.review("forwarded_permission.record_failed", {
+        ...logDetails,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+    this.logger.review("forwarded_permission.durable_recorded", {
+      ...logDetails,
+      scopes: durable.map((selected) => selected.scope),
+      surfaces: durable.map((selected) => selected.surface),
+    });
   }
 
   /**
@@ -397,6 +463,7 @@ export class ForwardedRequestServer implements InboxProcessor {
       writeJsonFileAtomic(this.logger, responsePath, {
         approved: decision.approved,
         state: decision.state,
+        ...(decision.confirmationUnavailable ? { confirmationUnavailable: true as const } : {}),
         denialReason: decision.denialReason,
         responderSessionId: currentSessionId,
         respondedAt: Date.now(),
@@ -440,7 +507,11 @@ export class ForwardedRequestServer implements InboxProcessor {
       ? this.policy.resolve(request.accessIntent)
       : null;
 
-    if (check && check.state !== "ask") {
+    // Core children already evaluated their live authority in the child's
+    // execution scope. The serving parent's yolo/grants have no such scope:
+    // never turn that child's ask into a parent-context automatic allow.
+    if (check && check.state !== "ask" &&
+      (check.state === "deny" || !getPiPermissionHostPolicy())) {
       // The rule is carried in full rather than left to the event name: the
       // response file has no surface, pattern, or origin column for the
       // requester's record to lean on.

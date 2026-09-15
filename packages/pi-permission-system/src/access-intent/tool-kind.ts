@@ -108,5 +108,9 @@ interface McpKindFields {
  * server-qualified string.
  */
 export function isMcpCheck(check: McpKindFields): boolean {
-  return check.source === "mcp" || classifyToolKind(check.toolName) === "mcp";
+  return (
+    check.source === "mcp" ||
+    classifyToolKind(check.toolName) === "mcp" ||
+    check.toolName.startsWith("mcp__")
+  );
 }

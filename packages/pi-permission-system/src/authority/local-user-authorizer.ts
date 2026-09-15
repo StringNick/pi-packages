@@ -1,4 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   buildDirectionalSessionLabels,
   buildForwardedScopeLabels,
@@ -21,9 +22,11 @@ import type {
   requestPermissionDecision,
 } from "./permission-prompt-component";
 import type { PromptPermissionDetails } from "./permission-prompter";
+import { getPiPermissionHostPolicy } from "#src/host-policy";
 
 /** Dependencies required by {@link LocalUserAuthorizer}. */
 export interface LocalUserAuthorizerDeps {
+  sessionId?: string;
   /** The active session's UI surface (select/input plus the inline `custom` dialog). */
   ui: PermissionPromptUi;
   /** The session run mode; the dispatcher renders the inline dialog only in `"tui"`. */
@@ -54,6 +57,11 @@ export class LocalUserAuthorizer implements TerminalAuthorizer {
   ): Promise<PermissionPromptDecision> {
     const uiPrompt = buildUiPrompt(details);
     emitUiPromptEvent(this.deps.events, uiPrompt);
+    // "Session" in the serving UI means this conversation, including its
+    // descendants. Core inherits only these selected rules, never suggestions.
+    const sessionId = this.deps.sessionId;
+    const host = getPiPermissionHostPolicy();
+    const runInRequest = AsyncLocalStorage.snapshot();
     return this.deps.requestPermissionDecision(
       {
         mode: this.deps.mode,
@@ -64,7 +72,20 @@ export class LocalUserAuthorizer implements TerminalAuthorizer {
         ? "Permission Required (Subagent)"
         : "Permission Required",
       details.payload,
-      buildRequestOptions(details),
+      !host ? buildRequestOptions(details) : {
+        ...buildRequestOptions(details),
+        ...(host?.recordApprovals && sessionId ? {
+          saveEditedApprovals: (approvals: readonly import("./approval-editor").EditedApproval[], lifetime?: { signal?: AbortSignal }) =>
+            runInRequest(async () => {
+              await host.recordApprovals!(approvals.map((approval) => ({ ...approval, sessionId })), lifetime);
+            }),
+        } : {}),
+        diagnostic: {
+          requestId: details.requestId,
+          ...(!details.forwarding && details.hostApprovalReason ? { hostApprovalReason: details.hostApprovalReason } : {}),
+          ...(details.toolCallId ? { toolCallId: details.toolCallId } : {}),
+        },
+      },
     );
   }
 }
@@ -91,6 +112,29 @@ function buildRequestOptions(
     ? buildDirectionalSessionLabels(direction, describeGrantTarget(grants))
     : null;
   const sessionLabel = widths?.sessionLabel ?? details.sessionLabel;
+  const approvals = details.sessionApprovals ?? (details.sessionApproval ? [details.sessionApproval] : []);
+  const groups = approvals.flatMap((approval) => {
+    const surfaces = [...new Set(approval.grants.map((grant) => grant.surface))];
+    return surfaces.map((surface) => ({
+      surface,
+      exactPatterns: (approval.exactGrants ?? approval.grants).filter((grant) => grant.surface === surface).map((grant) => grant.pattern),
+      suggestedPatterns: approval.grants.filter((grant) => grant.surface === surface).map((grant) => grant.pattern),
+    }));
+  });
+  if (getPiPermissionHostPolicy() && groups.length) {
+    const first = groups[0]!;
+    return {
+      ...(sessionLabel ? { sessionLabel } : {}),
+      hasSessionApproval: true,
+      reusableApproval: {
+        ...first,
+        groups,
+        ...(approvals.length === 1 && approvals[0]?.reusableChoices ? { choices: approvals[0].reusableChoices } : {}),
+        allowWorkspace: true,
+        allowGlobal: true,
+      },
+    };
+  }
 
   const options: RequestPermissionOptions = {
     ...(sessionLabel ? { sessionLabel } : {}),

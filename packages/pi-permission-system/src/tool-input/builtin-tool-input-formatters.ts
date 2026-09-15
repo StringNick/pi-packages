@@ -55,7 +55,9 @@ function renderArgValue(value: unknown): string {
 export const formatMcpInputForPrompt: ToolInputFormatter = (
   input: Record<string, unknown>,
 ): string | undefined => {
-  const args = toRecord(input.arguments);
+  const args = input.tool
+    ? toRecord(input.arguments ?? input.args)
+    : toRecord(input.arguments ?? input.args ?? input);
   const entries = Object.entries(args);
   if (entries.length === 0) return undefined;
 

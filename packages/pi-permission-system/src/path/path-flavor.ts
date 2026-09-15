@@ -1,4 +1,3 @@
-import type { PlatformPath } from "node:path";
 import { posix as posixPath, win32 as winPath } from "node:path";
 
 import {
@@ -31,7 +30,7 @@ export interface PathFlavor {
    * `PlatformPath` is itself a maintained strategy object, so wrapping it would
    * be pure forwarding.
    */
-  readonly impl: PlatformPath;
+  readonly impl: typeof posixPath;
   /**
    * Wildcard match options for path-surface rule matching: the win32
    * case-and-separator fold, or `undefined` on POSIX.
@@ -74,7 +73,7 @@ class PlatformPathFlavor implements PathFlavor {
   private readonly separators: readonly string[];
 
   constructor(
-    readonly impl: PlatformPath,
+    readonly impl: typeof posixPath,
     private readonly windows: boolean,
   ) {
     this.matchOptions = windows

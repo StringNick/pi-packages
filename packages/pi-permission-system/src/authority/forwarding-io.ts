@@ -101,7 +101,16 @@ function asForwardedSessionApproval(
     if (!grant) return undefined;
     grants.push(grant);
   }
-  return { grants };
+  const exactGrants: ApprovalGrant[] = [];
+  if (candidate.exactGrants !== undefined) {
+    if (!Array.isArray(candidate.exactGrants) || candidate.exactGrants.length > 32) return undefined;
+    for (const entry of candidate.exactGrants) {
+      const grant = asApprovalGrant(entry);
+      if (!grant) return undefined;
+      exactGrants.push(grant);
+    }
+  }
+  return { grants, ...(exactGrants.length ? { exactGrants } : {}) };
 }
 
 /**
@@ -478,6 +487,13 @@ export function readForwardedPermissionRequest(
       return null;
     }
 
+    const sessionApprovals = Array.isArray(parsed.sessionApprovals)
+      ? parsed.sessionApprovals.map(asForwardedSessionApproval)
+      : undefined;
+    if (parsed.sessionApprovals !== undefined &&
+      (!sessionApprovals || sessionApprovals.length > 32 || sessionApprovals.some((approval) => !approval))) {
+      return null;
+    }
     return {
       id: parsed.id,
       createdAt: parsed.createdAt,
@@ -493,6 +509,7 @@ export function readForwardedPermissionRequest(
       surface: asNullableDisplayString(parsed.surface),
       value: asNullableDisplayString(parsed.value),
       sessionApproval: asForwardedSessionApproval(parsed.sessionApproval),
+      ...(sessionApprovals ? { sessionApprovals: sessionApprovals as ForwardedSessionApproval[] } : {}),
       accessIntent: asForwardedAccessIntent(parsed.accessIntent),
     };
   } catch (error) {
@@ -529,6 +546,7 @@ export function readForwardedPermissionResponse(
     return {
       approved: parsed.approved,
       state: parsed.state,
+      ...(parsed.confirmationUnavailable === true ? { confirmationUnavailable: true as const } : {}),
       denialReason:
         typeof parsed.denialReason === "string"
           ? parsed.denialReason

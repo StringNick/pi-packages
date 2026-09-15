@@ -144,6 +144,7 @@ export function selectAuthorizer(
     if (relayTarget === null) {
       return {
         terminal: new LocalUserAuthorizer({
+          sessionId: getSessionId(ctx) ?? undefined,
           ui: ctx.ui,
           mode: ctx.mode,
           events: deps.events,

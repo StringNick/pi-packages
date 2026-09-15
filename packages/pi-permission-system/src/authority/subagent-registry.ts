@@ -60,6 +60,9 @@ export function getSubagentSessionRegistry(): SubagentSessionRegistry {
 export interface SubagentSessionInfo {
   /** Parent session ID for permission forwarding. Omit when unknown. */
   parentSessionId?: string;
+  /** Core-attested serving root; genealogy and forwarding ownership differ. */
+  servingSessionId?: string;
+  servingRemote?: boolean;
 }
 
 /**

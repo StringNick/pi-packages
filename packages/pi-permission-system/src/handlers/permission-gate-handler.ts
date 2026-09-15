@@ -20,6 +20,7 @@ import {
 } from "#src/presentation/permission-prompts";
 import type { PermissionSession } from "#src/session/permission-session";
 import { toRecord } from "#src/value-guards";
+import { getPiPermissionHostPolicy } from "#src/host-policy";
 
 /** Minimal subset of InputEvent used by handleInput. */
 interface InputPayload {
@@ -48,6 +49,7 @@ export class PermissionGateHandler {
   async handleToolCall(
     event: unknown,
     ctx: ExtensionContext,
+    hosted?: { agentName: string },
   ): Promise<GateOutcome> {
     this.session.activate(ctx);
 
@@ -57,7 +59,7 @@ export class PermissionGateHandler {
     }
     const toolName = validation.toolName;
 
-    const agentName = this.session.resolveAgentName(ctx);
+    const agentName = hosted?.agentName ?? this.session.resolveAgentName(ctx);
 
     const input = getEventInput(event);
     const toolCallId =
@@ -73,7 +75,15 @@ export class PermissionGateHandler {
       cwd: ctx.cwd,
     };
 
-    return await this.pipeline.evaluate(tcc, this.runner);
+    const evaluate = () => this.pipeline.evaluate(tcc, this.runner);
+    const host = getPiPermissionHostPolicy();
+    return host?.runToolCall && !hosted
+      ? await host.runToolCall({
+          ...tcc,
+          sessionId: ctx.sessionManager.getSessionId(),
+          signal: ctx.signal,
+        }, evaluate)
+      : await evaluate();
   }
 
   async handleInput(

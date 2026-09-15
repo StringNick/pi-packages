@@ -81,6 +81,13 @@ export function subscribeSubagentLifecycle(
 ): () => void {
   const unsubCreated = events.on(SUBAGENT_CHILD_SESSION_CREATED, (data) => {
     const event = data as ChildSessionCreatedEvent;
+    const existing = registry.get(event.sessionId);
+    if (existing?.servingSessionId) {
+      if (existing.parentSessionId !== event.parentSessionId) {
+        throw new Error("Child announcement conflicts with host ancestry");
+      }
+      return;
+    }
     registry.register(event.sessionId, {
       parentSessionId: event.parentSessionId,
     });

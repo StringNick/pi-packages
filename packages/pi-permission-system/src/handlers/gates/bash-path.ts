@@ -147,7 +147,7 @@ export function describeBashPathGate(
     surface,
     input: { path: worstToken },
     payload,
-    sessionApproval: SessionApproval.single(surface, pattern),
+    sessionApproval: SessionApproval.single(surface, pattern, worstEntry.path.value()),
     promptDetails: {
       source: "tool_call",
       agentName: tcc.agentName,

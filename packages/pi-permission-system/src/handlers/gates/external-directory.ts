@@ -1,4 +1,5 @@
 import { capabilitySurfaceForTool } from "#src/access-intent/path-surfaces";
+import { getPiPermissionHostPolicy } from "#src/host-policy";
 import { getToolInputPath } from "#src/access-intent/tool-input-path";
 import type { PathNormalizer } from "#src/path/path-normalizer";
 import type { ScopedPermissionResolver } from "#src/policy/permission-resolver";
@@ -99,10 +100,10 @@ export function describeExternalDirectoryGate(
 
   return {
     surface,
-    input: {},
+    input: getPiPermissionHostPolicy() ? tcc.input : {},
     preCheck,
     payload,
-    sessionApproval: SessionApproval.single(surface, pattern),
+    sessionApproval: SessionApproval.single(surface, pattern, accessPath.value()),
     promptDetails: buildPathGatePromptDetails(
       tcc,
       externalDirectoryPath,

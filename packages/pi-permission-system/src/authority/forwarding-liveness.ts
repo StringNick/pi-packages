@@ -140,6 +140,7 @@ export class ForwardingLivenessJudge implements TargetServingLookup {
       case "registry":
         return this.deps.registry.isServing(target.sessionId);
       case "env":
+      case "host-remote":
         return this.deps.heartbeats.read(target.sessionId) === "alive";
     }
   }
@@ -153,6 +154,7 @@ export class ForwardingLivenessJudge implements TargetServingLookup {
           servingIds: this.deps.registry.servingIds(),
         };
       case "env":
+      case "host-remote":
         return {
           channel: "heartbeat",
           state: this.deps.heartbeats.read(target.sessionId),

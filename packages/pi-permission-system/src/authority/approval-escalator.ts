@@ -88,6 +88,7 @@ interface ForwardedRequestFacts {
   payload: PromptPayload;
   display?: ForwardedPromptDisplay;
   sessionApproval?: ForwardedSessionApproval;
+  sessionApprovals?: readonly ForwardedSessionApproval[];
   /** The child-fixed access facts; the edge completes them into a `ForwardedAccessIntent`. */
   accessIntent?: ForwardedAccessFacts;
 }
@@ -210,6 +211,7 @@ export class ParentAuthorizer implements TerminalAuthorizer {
         value: uiPrompt.value,
       },
       sessionApproval: details.sessionApproval,
+      sessionApprovals: details.sessionApprovals,
       accessIntent: details.accessIntent,
     });
   }
@@ -342,6 +344,7 @@ export class ParentAuthorizer implements TerminalAuthorizer {
       ...(facts.sessionApproval
         ? { sessionApproval: facts.sessionApproval }
         : {}),
+      ...(facts.sessionApprovals ? { sessionApprovals: facts.sessionApprovals } : {}),
       ...(accessIntent ? { accessIntent } : {}),
     };
   }
