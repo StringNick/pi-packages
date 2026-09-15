@@ -1852,6 +1852,7 @@ describe("BashProgram", () => {
         expect(program.commands()).toEqual([
           { text: "git add -A .", parseUnresolved: true },
           { text: "git commit -F", parseUnresolved: true },
+          { text: "rm -rf /tmp/x", parseUnresolved: true },
         ]);
       });
 
@@ -1879,6 +1880,60 @@ describe("BashProgram", () => {
         for (const unit of program.commands()) {
           expect(unit.parseUnresolved).toBeUndefined();
         }
+      });
+    });
+
+    describe("a command the parse dropped entirely (#875)", () => {
+      it("enumerates the piped command the recovery left in no unit", async () => {
+        // Before the salvage this command enumerated `git add -A .` and
+        // `git commit -F` only, so `bash: {"rm -rf *": "deny"}` was never
+        // evaluated against a command `bash -n` accepts and the shell runs.
+        const program = await BashProgram.parse(
+          "git add -A . && git commit -F - <<'MSG' 2>&1 | rm -rf /tmp/x\nmsg\nMSG",
+          normalizer,
+        );
+        expect(program.commands()).toContainEqual({
+          text: "rm -rf /tmp/x",
+          parseUnresolved: true,
+        });
+      });
+
+      it("appends the salvaged unit after the units the primary parse produced", async () => {
+        const program = await BashProgram.parse(
+          "cat <<'MSG' 2>&1 | tail -4\nmsg\nMSG",
+          normalizer,
+        );
+        expect(program.commands()).toEqual([
+          { text: "cat", parseUnresolved: true },
+          { text: "tail -4", parseUnresolved: true },
+        ]);
+      });
+
+      it("flags a salvaged indirection wrapper like any other", async () => {
+        // The salvaged root goes through the ordinary enumeration, so the
+        // wrapper floor reaches it without a second vocabulary.
+        const program = await BashProgram.parse(
+          "cat <<'MSG' 2>&1 | sudo rm -rf /\nmsg\nMSG",
+          normalizer,
+        );
+        expect(program.commands()).toEqual([
+          { text: "cat", parseUnresolved: true },
+          {
+            text: "sudo rm -rf /",
+            wrapperKind: "indirection",
+            executedUnit: "rm -rf /",
+            parseUnresolved: true,
+          },
+        ]);
+      });
+
+      it("salvages nothing from a region whose own re-parse fails", async () => {
+        // The `<>` shapes (#814): recovery's invented structure does not
+        // re-parse, so no fragment is admitted as a command.
+        const program = await BashProgram.parse("cat <> rw.txt", normalizer);
+        expect(program.commands()).toEqual([
+          { text: "cat", parseUnresolved: true },
+        ]);
       });
     });
   });

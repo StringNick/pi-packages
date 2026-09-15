@@ -1,5 +1,10 @@
-import { type BashCommand, collectCommands } from "./command-enumeration";
+import {
+  type BashCommand,
+  collectCommands,
+  collectSalvagedCommands,
+} from "./command-enumeration";
 import { getWarmBashParser } from "./parser";
+import { withSalvagedRoots } from "./unresolved-salvage";
 
 /**
  * Synchronously enumerate the command-pattern units of a bash command using the
@@ -21,7 +26,10 @@ export function parseBashCommandsSync(command: string): BashCommand[] | null {
   const tree = parser.parse(command);
   if (!tree) return [];
   try {
-    return collectCommands(tree.rootNode);
+    return withSalvagedRoots(tree.rootNode, parser, (salvaged) => [
+      ...collectCommands(tree.rootNode),
+      ...salvaged.flatMap(collectSalvagedCommands),
+    ]);
   } finally {
     tree.delete();
   }

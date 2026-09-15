@@ -91,6 +91,20 @@ const TOP_LEVEL_SCOPE: UnitScope = {
   parseUnresolved: false,
 };
 
+/**
+ * The scope a salvaged region's own units run under.
+ *
+ * Marked unresolved because the region reached the salvage only by failing in
+ * the primary parse, so the verdict fold floors what it recovers rather than
+ * trusting it. `writesViaRedirect` starts false for the same reason
+ * {@link collectHostedCommands} resets it: a redirect established outside the
+ * region is the enclosing statement's, not the region's.
+ */
+const SALVAGED_SCOPE: UnitScope = {
+  writesViaRedirect: false,
+  parseUnresolved: true,
+};
+
 // ── Node-type vocabulary ─────────────────────────────────────────────────────
 
 /**
@@ -209,6 +223,22 @@ const STATEMENT_TYPES = new Set([
 export function collectCommands(node: TSNode): BashCommand[] {
   const out: BashCommand[] = [];
   collectCommandsInto(node, TOP_LEVEL_SCOPE, out);
+  return out;
+}
+
+/**
+ * Enumerate the command units of a region the primary parse could not resolve,
+ * re-parsed cleanly on its own (`unresolved-salvage.ts`, #875).
+ *
+ * The same walk as {@link collectCommands}, differing only in the scope it
+ * starts from: every unit is marked {@link BashCommand.parseUnresolved}, so a
+ * command the primary parse dropped is matched against the bash rules — an
+ * explicit `deny` fires — while its `allow` is still floored to `ask` by the
+ * verdict fold (#840).
+ */
+export function collectSalvagedCommands(node: TSNode): BashCommand[] {
+  const out: BashCommand[] = [];
+  collectCommandsInto(node, SALVAGED_SCOPE, out);
   return out;
 }
 

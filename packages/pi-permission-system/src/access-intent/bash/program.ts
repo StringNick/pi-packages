@@ -4,8 +4,13 @@ import {
   BashPathResolver,
   type BashPathRuleCandidate,
 } from "./bash-path-resolver";
-import { type BashCommand, collectCommands } from "./command-enumeration";
+import {
+  type BashCommand,
+  collectCommands,
+  collectSalvagedCommands,
+} from "./command-enumeration";
 import { getParser } from "./parser";
+import { withSalvagedRoots } from "./unresolved-salvage";
 
 export type { BashCommand, BashExternalPath, BashPathRuleCandidate };
 
@@ -56,16 +61,21 @@ export class BashProgram {
     if (!tree) return new BashProgram(command, [], [], []);
 
     try {
-      const { externalAccesses, ruleCandidates } = new BashPathResolver(
-        normalizer,
-        options?.workdir,
-      ).resolve(tree.rootNode);
-      return new BashProgram(
-        command,
-        collectCommands(tree.rootNode),
-        externalAccesses,
-        ruleCandidates,
-      );
+      return withSalvagedRoots(tree.rootNode, parser, (salvaged) => {
+        const { externalAccesses, ruleCandidates } = new BashPathResolver(
+          normalizer,
+          options?.workdir,
+        ).resolve(tree.rootNode);
+        return new BashProgram(
+          command,
+          [
+            ...collectCommands(tree.rootNode),
+            ...salvaged.flatMap(collectSalvagedCommands),
+          ],
+          externalAccesses,
+          ruleCandidates,
+        );
+      });
     } finally {
       tree.delete();
     }

@@ -241,8 +241,8 @@ describe("bash command gate — a parse it could not resolve fails closed", () =
   const unresolved: { label: string; command: string }[] = [
     // Valid bash (`bash -n` accepts it): a heredoc redirect combined with
     // `2>&1` AND a pipe, though each pairing alone parses. The only shape in
-    // the measured corpus, and the one that really runs — the recovery drops
-    // the piped command from enumeration entirely.
+    // the measured corpus, and the one that really runs — the recovery leaves
+    // the piped command in no unit, which the salvage restores (#875).
     {
       label: "a heredoc redirect with 2>&1 and a pipe",
       command: "git commit -F - <<'MSG' 2>&1 | tail -4\nmsg\nMSG",
@@ -332,6 +332,47 @@ describe("bash command gate — a parse it could not resolve fails closed", () =
           resolver,
         ),
       ).toBe("deny");
+    });
+  });
+
+  describe("the gate consults the rules of a command the parse dropped (#875)", () => {
+    const dropped =
+      "git add -A . && git commit -F - <<'MSG' 2>&1 | rm -rf /tmp/x\nmsg\nMSG";
+
+    it("denies on a rule covering only the dropped command", async () => {
+      // The defect: `rm -rf /tmp/x` was in no unit, so this rule was never
+      // evaluated and the user was prompted about `git commit` instead.
+      const resolver = makeKeyedResolver([{ match: "rm -rf", state: "deny" }]);
+
+      expect(await decide(dropped, resolver)).toBe("deny");
+    });
+
+    it("names the dropped command as the offender", async () => {
+      const resolver = makeKeyedResolver([{ match: "rm -rf", state: "deny" }]);
+      const program = await BashProgram.parse(dropped, normalizer);
+
+      expect(
+        resolveBashCommandCheck(
+          dropped,
+          program.commands(),
+          undefined,
+          resolver,
+        ).command,
+      ).toBe("rm -rf /tmp/x");
+    });
+
+    it("still only asks when no rule covers the dropped command", async () => {
+      // The salvaged unit is marked, so its `allow` floors like every other
+      // marked unit — the salvage adds restriction and removes none.
+      expect(await decide(dropped, makeKeyedResolver([]))).toBe("ask");
+    });
+
+    it("consults no rule for a region whose own re-parse fails", async () => {
+      // `<>` recovery invents the token `">"`; admitting it as a unit would
+      // match it against the bash rules (#814).
+      const resolver = makeKeyedResolver([{ match: ">", state: "deny" }]);
+
+      expect(await decide("cat <> rw.txt", resolver)).toBe("ask");
     });
   });
 });
