@@ -61,11 +61,20 @@ vi.mock("#src/lifecycle/create-subagent-session", async () => {
 import subagentsExtension from "#src/index";
 import { createSubagentSession } from "#src/lifecycle/create-subagent-session";
 import { getSubagentsService } from "#src/service/service";
+import { registerSubagentHost, requireSubagentHosts } from "#src/service/host";
 import { createMockSession, createSubagentSessionStub, toSubagentSession } from "./helpers/mock-session";
+
+const shutdowns: Array<() => Promise<void>> = [];
+afterEach(async () => {
+  for (const shutdown of shutdowns.splice(0)) await shutdown();
+});
 
 function makePi() {
   const tools = new Map<string, any>();
   const handlers = new Map<string, any[]>();
+  shutdowns.push(async () => {
+    for (const handler of handlers.get("session_shutdown") ?? []) await handler();
+  });
   return {
     pi: {
       registerMessageRenderer: vi.fn(),
@@ -167,6 +176,59 @@ async function captureSessionFactoryIO(parentRegistry: unknown) {
   const [, deps] = vi.mocked(createSubagentSession).mock.calls[0];
   return deps;
 }
+
+describe("composition root: hosted cwd and trust", () => {
+  it("binds each parent's agents/settings, rejects pre-bind work and drops revoked project configuration", async () => {
+    vi.mocked(createSubagentSession).mockClear();
+    vi.mocked(createSubagentSession).mockResolvedValue(toSubagentSession(createSubagentSessionStub(createMockSession(), "/sessions/child.jsonl")));
+    const root = mkdtempSync(join(tmpdir(), "hosted-agent-context-"));
+    const agentDir = join(root, "profile");
+    mkdirSync(join(agentDir, "agents"), { recursive: true });
+    writeFileSync(join(agentDir, "agents", "custom.md"), "---\ndescription: GLOBAL_AGENT\n---\nGlobal prompt");
+    writeFileSync(join(agentDir, "subagents.json"), JSON.stringify({ maxConcurrent: 7, defaultMaxTurns: 11 }));
+    const required = requireSubagentHosts(); shutdowns.push(async () => { required(); rmSync(root, { recursive: true, force: true }); });
+    const host = (trusted: boolean) => ({ agentDir, allowProjectAgents: trusted, createSessionFactory: async () => { throw new Error("unused IO"); }, admitSession: () => {} });
+    const start = async (id: string, cwd: string, trusted: boolean) => {
+      const release = registerSubagentHost(id, host(trusted)); shutdowns.push(async () => release());
+      const parent = makePi(); subagentsExtension(parent.pi);
+      expect(parent.tools.get("subagent").description).not.toContain("GLOBAL_AGENT");
+      expect(parent.pi.events.emit.mock.calls.some(([name]: string[]) => name === "subagents:settings_loaded")).toBe(false);
+      await expect(parent.tools.get("subagent").execute("prebind", { prompt: "probe", description: "probe", subagent_type: "general-purpose", run_in_background: true }, undefined, undefined)).rejects.toThrow();
+      const ctx = makeSessionStartCtx(makeParentRegistry().registry, makeRecordingUI());
+      ctx.cwd = cwd; ctx.sessionManager.getSessionId = () => id; ctx.sessionManager.getSessionFile = () => `/sessions/${id}.jsonl`;
+      await parent.fire("session_start", {}, ctx);
+      return { ...parent, release, service: getSubagentsService(id)! };
+    };
+    for (const name of ["A", "B"]) {
+      mkdirSync(join(root, name, ".pi", "agents"), { recursive: true });
+      writeFileSync(join(root, name, ".pi", "agents", "custom.md"), `---\ndescription: PROJECT_${name}\n---\nProject ${name}`);
+      writeFileSync(join(root, name, ".pi", "subagents.json"), JSON.stringify({ maxConcurrent: name === "A" ? 2 : 3, allowProjectAgents: true }));
+    }
+    const a = await start("host-A", join(root, "A"), true);
+    const b = await start("host-B", join(root, "B"), true);
+    expect(a.tools.get("subagent").description).toContain("PROJECT_A");
+    expect(a.tools.get("subagent").description).not.toContain("PROJECT_B");
+    expect(b.tools.get("subagent").description).toContain("PROJECT_B");
+    for (const [parent, expected] of [[a, 2], [b, 3]] as const) {
+      const loaded = parent.pi.events.emit.mock.calls.find(([name]: string[]) => name === "subagents:settings_loaded");
+      expect(loaded[1].settings).toMatchObject({ maxConcurrent: expected, defaultMaxTurns: 11 });
+    }
+    a.release();
+    expect(() => a.service.spawn("custom", "cannot use cached project config")).toThrow("retired");
+    await a.fire("session_shutdown");
+    const downgraded = await start("host-A", join(root, "A"), false);
+    expect(downgraded.tools.get("subagent").description).toContain("GLOBAL_AGENT");
+    expect(downgraded.tools.get("subagent").description).not.toContain("PROJECT_A");
+    expect(downgraded.pi.events.emit.mock.calls.find(([name]: string[]) => name === "subagents:settings_loaded")[1].settings).toMatchObject({ maxConcurrent: 7, defaultMaxTurns: 11 });
+    const command = downgraded.pi.registerCommand.mock.calls.find(([name]: string[]) => name === "subagents:settings")[1];
+    await expect(command.handler("", { ui: makeRecordingUI() })).rejects.toThrow("project trust");
+    downgraded.service.spawn("custom", "global only");
+    await vi.waitFor(() => expect(createSubagentSession).toHaveBeenCalled());
+    const [params, deps] = vi.mocked(createSubagentSession).mock.calls.at(-1)!;
+    expect(params.snapshot.cwd).toBe(join(root, "A"));
+    expect(deps.registry.resolveAgentConfig("custom").systemPrompt).toBe("Global prompt");
+  });
+});
 
 describe("composition root: io.createSession", () => {
   it("gives the child its own model runtime carrying the parent's runtime-registered providers", async () => {

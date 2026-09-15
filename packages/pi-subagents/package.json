@@ -3,6 +3,10 @@
   "version": "21.7.0",
   "type": "module",
   "exports": {
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "default": "./src/service/host.ts"
+    },
     ".": {
       "types": "./dist/public.d.ts",
       "default": "./src/service/service.ts"

@@ -43,7 +43,9 @@ import {
 } from "#src/observation/renderer";
 import { SubagentEventsObserver } from "#src/observation/subagent-events-observer";
 import { createSubagentRuntime } from "#src/runtime";
-import { publishSubagentsService, unpublishSubagentsService } from "#src/service/service";
+import { registerSubagentsService } from "#src/service/service";
+import { getSubagentHost, subagentHostsRequired } from "#src/service/host";
+import { registerSubagentWorkload } from "#src/service/workload";
 import { SubagentsServiceAdapter } from "#src/service/service-adapter";
 import { detectEnv } from "#src/session/env";
 
@@ -69,17 +71,26 @@ export default function (pi: ExtensionAPI) {
     createWorkspaceNoticeRenderer(),
   );
 
-  const registry = new AgentTypeRegistry(() => loadCustomAgents(process.cwd()));
-
   // ---- Runtime: all mutable extension state in one place ----
   const runtime = createSubagentRuntime();
+  const registry = new AgentTypeRegistry(() => {
+    const ctx = runtime.currentCtx;
+    // Hosted construction must not inspect ambient project/home agents before binding.
+    if (!ctx) return subagentHostsRequired() ? new Map() : loadCustomAgents(process.cwd());
+    const host = subagentSessionDeps.host ?? getSubagentHost(ctx.sessionManager.getSessionId());
+    host?.assertActive();
+    return loadCustomAgents(ctx.cwd, host ? { agentDir: host.host.agentDir, includeProject: host.host.allowProjectAgents === true } : {});
+  });
 
   // ---- Notification system ----
   // Owns completion nudges and live-activity cleanup. The widget detects finished
   // agents itself (AgentWidget.update self-seeds), so NotificationManager has no
   // widget dependency — keeping the construction graph a cycle-free DAG.
+  let workload: ReturnType<typeof registerSubagentWorkload> | undefined;
+  const changed = () => workload?.changed();
   const notifications = new NotificationManager(
     (msg, opts) => pi.sendMessage(msg, opts),
+    changed,
   );
 
   // Gate nudge delivery on the parent's agent run. agent_settled fires exactly
@@ -93,11 +104,11 @@ export default function (pi: ExtensionAPI) {
   // onMaxConcurrentChanged is wired to the limiter directly (closure captures by reference).
   const settings = new SettingsManager({
     emit: (event, payload) => pi.events.emit(event, payload),
-    cwd: process.cwd(),
+    cwd: subagentHostsRequired() ? "" : process.cwd(),
     agentDir: getAgentDir(),
     onMaxConcurrentChanged: () => limiter.recheck(),
   });
-  settings.load();
+  if (!subagentHostsRequired()) settings.load();
 
   // Observer: receives agent lifecycle notifications and dispatches events/notifications.
   const eventsObserver = new SubagentEventsObserver({
@@ -180,8 +191,18 @@ export default function (pi: ExtensionAPI) {
   const limiter = new ConcurrencyLimiter(() => settings.maxConcurrent);
 
   const manager = new SubagentManager({
+    assertAdmission: () => {
+      const host = subagentSessionDeps.host ?? getSubagentHost(runtime.getSessionInfo().parentSessionId);
+      host?.assertActive();
+      host?.host.assertAdmission?.();
+      registry.reload();
+    },
     createSubagentSession: (params) => createSubagentSession(params, subagentSessionDeps),
-    baseCwd: process.cwd(),
+    baseCwd: () => {
+      if (runtime.currentCtx) return runtime.currentCtx.cwd;
+      if (subagentHostsRequired()) throw new Error("Hosted parent context is not bound");
+      return process.cwd();
+    },
     observer,
     limiter,
     getRunConfig: () => settings,
@@ -191,14 +212,19 @@ export default function (pi: ExtensionAPI) {
 
   // Typed service published via Symbol.for() for cross-extension access.
   // Consumers: const { getSubagentsService } = await import("@gotgenes/pi-subagents");
+  observer.add({
+    onSubagentStarted: changed, onSubagentCreated: changed, onSubagentCompleted: changed,
+    onSubagentResuming: changed, onSubagentResumed: changed, onSubagentCompacted: changed,
+    onSubagentExecutionSettled: changed, onSubagentCleanupChanged: changed,
+  });
   const service = new SubagentsServiceAdapter(manager, resolveModel, runtime);
-  publishSubagentsService(service);
+  let unregisterService: (() => void) | undefined;
 
   const lifecycle = new SessionLifecycleHandler(
     runtime,
     manager,
     () => notifications.dispose(),
-    unpublishSubagentsService,
+    () => { unregisterService?.(); unregisterService = undefined; workload?.dispose(); workload = undefined; },
   );
 
   // Live widget: constructed after the manager (it polls listAgents()) and
@@ -211,7 +237,27 @@ export default function (pi: ExtensionAPI) {
   // registrations rather than sharing a lambda with an unrelated concern.
   const widgetEvents = new WidgetEventsHandler(widget);
 
-  pi.on("session_start", (event, ctx) => lifecycle.handleSessionStart(event, ctx));
+  pi.on("session_start", async (event, ctx) => {
+    await lifecycle.handleSessionStart(event, ctx);
+    subagentSessionDeps.host = getSubagentHost(ctx.sessionManager.getSessionId());
+    const host = subagentSessionDeps.host;
+    if (host) settings.bindContext(ctx.cwd, host.host.agentDir ?? getAgentDir(), host.host.allowProjectAgents === true, host.assertActive);
+    registry.reload();
+    registerAgentTool();
+    unregisterService?.();
+    unregisterService = registerSubagentsService(ctx.sessionManager.getSessionId(), service);
+    workload?.dispose();
+    workload = registerSubagentWorkload({ sessionId: ctx.sessionManager.getSessionId(), sessionFile: ctx.sessionManager.getSessionFile() ?? null }, () => {
+      const records = manager.listAgents();
+      return {
+        active: manager.hasRunning() || manager.pendingCleanup || records.some((record) => record.executionPending) || notifications.pendingDelivery,
+        queued: records.filter((record) => record.status === "queued").length,
+        running: records.filter((record) => record.status !== "queued" && (record.status === "running" || record.executionPending) && record.isBackground).length,
+        foreground: records.filter((record) => record.status !== "queued" && (record.status === "running" || record.executionPending) && !record.isBackground).length,
+        pendingDelivery: notifications.pendingDelivery,
+      };
+    });
+  });
   pi.on("session_start", (event, ctx) => widgetEvents.handleSessionStart(event, ctx));
   pi.on("session_before_switch", () => lifecycle.handleSessionBeforeSwitch());
   pi.on("session_shutdown", () => lifecycle.handleSessionShutdown());
@@ -227,6 +273,7 @@ export default function (pi: ExtensionAPI) {
   // renders the parent's portable identity from the latest capture.
   pi.on("before_agent_start", (event) => {
     runtime.setSystemPromptOptions(event.systemPromptOptions);
+    if (subagentSessionDeps.host) { registry.reload(); registerAgentTool(); }
   });
 
   // Abort all subagents when the parent agent loop is interrupted (ESC), unless
@@ -237,7 +284,8 @@ export default function (pi: ExtensionAPI) {
 
   // ---- Agent tool ----
 
-  pi.registerTool(new AgentTool(manager, runtime, settings, registry, getAgentDir()).toToolDefinition());
+  const registerAgentTool = () => pi.registerTool(new AgentTool(manager, runtime, settings, registry, subagentSessionDeps.host?.host.agentDir ?? getAgentDir()).toToolDefinition());
+  registerAgentTool();
 
   // ---- get_subagent_result tool ----
 
@@ -254,6 +302,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("subagents:settings", {
     description: "Configure subagent settings (concurrency, turn limits, retention, interrupt policy)",
     handler: async (_args, ctx) => {
+      if (subagentHostsRequired() && !subagentSessionDeps.host) throw new Error("Hosted parent context is not bound");
+      settings.assertProjectWriteAllowed();
       await subagentsSettings.handle({ ui: ctx.ui });
     },
   });

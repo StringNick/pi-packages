@@ -54,6 +54,8 @@ export interface LayeredSettingsSource<T> {
   agentDir: string;
   /** Project root; the project file lives at `<cwd>/.pi/<filename>`. */
   cwd: string;
+  /** Hosts can exclude project settings without changing global/profile discovery. */
+  includeProject?: boolean;
   /** Base filename for both layers, e.g. `"subagents.json"`. */
   filename: string;
   /**
@@ -84,7 +86,7 @@ export interface LayeredSettingsSource<T> {
 export function loadLayeredSettings<T>(source: LayeredSettingsSource<T>): Partial<T> {
   const { agentDir, cwd, filename, sanitize, warnLabel } = source;
   const global = readLayer(join(agentDir, filename), sanitize, warnLabel);
-  const project = readLayer(join(cwd, ".pi", filename), sanitize, warnLabel);
+  const project = source.includeProject === false ? {} : readLayer(join(cwd, ".pi", filename), sanitize, warnLabel);
   return { ...global, ...project };
 }
 

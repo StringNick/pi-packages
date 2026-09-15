@@ -1549,7 +1549,7 @@ describe("Subagent — ask-back", () => {
 
 		await agent.resume("The project one.");
 
-		expect(stub.resumeTurnLoop).toHaveBeenCalledWith("The project one.", undefined);
+		expect(stub.resumeTurnLoop).toHaveBeenCalledWith("The project one.", expect.any(AbortSignal));
 		expect(agent.status).toBe("completed");
 		expect(agent.result).toBe("Used the project config. Done.");
 		// The question was answered, so it no longer stands.
@@ -1578,19 +1578,43 @@ describe("Subagent.resume() — happy path", () => {
 		expect(agent.result).toBe("resumed");
 	});
 
-	it("passes the prompt and signal straight through to resumeTurnLoop", async () => {
+	it("joins the caller signal to the resumable run's own stop signal", async () => {
 		const { agent, stub } = createResumableAgent();
-		const signal = new AbortController().signal;
-		await agent.resume("continue", signal);
+		const caller = new AbortController();
+		await agent.resume("continue", caller.signal);
 		expect(stub.resumeTurnLoop).toHaveBeenCalledOnce();
 		expect(stub.resumeTurnLoop.mock.calls[0][0]).toBe("continue");
-		expect(stub.resumeTurnLoop.mock.calls[0][1]).toBe(signal);
+		const joined = stub.resumeTurnLoop.mock.calls[0][1];
+		expect(joined?.aborted).toBe(false);
+		caller.abort();
+		expect(joined?.aborted).toBe(true);
 	});
 
 	it("resets transition state before resuming", async () => {
 		const { agent } = createResumableAgent();
 		await agent.resume("continue");
 		expect(agent.error).toBeUndefined();
+	});
+});
+
+describe("Subagent.resume() — cancellation ownership", () => {
+	it("stops a resumed turn after the initial controller was spent, retaining execution through cleanup", async () => {
+		const settled = vi.fn();
+		const { agent, stub } = createResumableAgent({ observer: { onExecutionSettled: settled } });
+		agent.abortController.abort();
+		let finish!: (value: string) => void;
+		stub.resumeTurnLoop.mockImplementation(() => new Promise<string>((resolve) => { finish = resolve; }));
+		const resumed = agent.resume("continue");
+		expect(agent.executionPending).toBe(true);
+		expect(agent.abort()).toBe(true);
+		expect(stub.resumeTurnLoop.mock.calls[0][1]?.aborted).toBe(true);
+		expect(agent.executionPending).toBe(true);
+		expect(settled).not.toHaveBeenCalled();
+		finish("partial");
+		await resumed;
+		expect(agent.status).toBe("stopped");
+		expect(agent.executionPending).toBe(false);
+		expect(settled).toHaveBeenCalledOnce();
 	});
 });
 

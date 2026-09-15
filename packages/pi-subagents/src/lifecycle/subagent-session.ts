@@ -57,6 +57,7 @@ export interface SubagentSessionMeta {
   /** Parent context prepended to the run prompt, captured at spawn time. */
   parentContext: string | undefined;
   lifecycle: ChildLifecyclePublisher;
+  disposeHost?: () => void;
 }
 
 /**
@@ -225,10 +226,19 @@ export class SubagentSession {
     if (this.disposed) return;
     this.disposed = true;
     this.turnFailure.unsubscribe();
-    await emitChildSessionShutdown(this._session);
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- dispose may not exist on all session implementations
-    this._session.dispose?.();
-    this.meta.lifecycle.disposed({ sessionId: this.meta.sessionId });
+    try {
+      await emitChildSessionShutdown(this._session);
+    } finally {
+      try {
+        this._session.dispose();
+      } finally {
+        try {
+          this.meta.disposeHost?.();
+        } finally {
+          this.meta.lifecycle.disposed({ sessionId: this.meta.sessionId });
+        }
+      }
+    }
   }
 }
 
@@ -342,6 +352,7 @@ function forwardAbortSignal(
   const onAbort = (): void => {
     void session.abort();
   };
+  signal.throwIfAborted();
   signal.addEventListener("abort", onAbort, { once: true });
   return () => signal.removeEventListener("abort", onAbort);
 }

@@ -1,0 +1,36 @@
+import { afterEach, expect, it, vi } from "vitest";
+import { getSubagentWorkload, registerSubagentWorkload, subscribeSubagentWorkloads } from "#src/service/workload";
+import { NotificationManager } from "#src/observation/notification";
+import { createTestSubagent } from "#test/helpers/make-subagent";
+const cleanups: Array<() => void> = [];
+afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
+it("scopes exact ownership to parent id and session file, with synchronous counters and monotonic events", () => {
+  const parent = { sessionId: "a", sessionFile: "/a.jsonl" };
+  const other = { sessionId: "b", sessionFile: "/b.jsonl" };
+  const counts = { active: true, queued: 1, running: 0, foreground: 0, pendingDelivery: false };
+  const events = vi.fn(); cleanups.push(subscribeSubagentWorkloads(events));
+  const a = registerSubagentWorkload(parent, () => counts); cleanups.push(() => a.dispose());
+  const b = registerSubagentWorkload(other, () => ({ ...counts, queued: 0, foreground: 1 })); cleanups.push(() => b.dispose());
+  expect(getSubagentWorkload(parent)).toMatchObject({ queued: 1, revision: 0 });
+  expect(getSubagentWorkload({ ...parent, sessionFile: "/foreign" })).toBeUndefined();
+  counts.queued = 0; counts.running = 1; a.changed();
+  expect(getSubagentWorkload(parent)).toMatchObject({ running: 1, revision: 1 });
+  expect(events).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "changed" }));
+  const source = getSubagentWorkload(parent)!.sourceId;
+  a.dispose(); const replacement = registerSubagentWorkload(parent, () => counts); cleanups.push(() => replacement.dispose());
+  a.dispose(); a.changed();
+  expect(getSubagentWorkload(parent)!.sourceId).not.toBe(source);
+  expect(getSubagentWorkload(other)).toBeDefined();
+});
+it("retains actual native pending delivery but not a delivered question or retained result", () => {
+  const observations: boolean[] = [];
+  const sent = vi.fn();
+  const notifications = new NotificationManager(sent, () => observations.push(notifications.pendingDelivery));
+  cleanups.push(() => notifications.dispose());
+  const record = createTestSubagent({ isBackground: true, status: "completed", result: "Which file?", pendingQuestion: "Which file?" });
+  notifications.onParentAgentStart(); notifications.sendCompletion(record);
+  expect(notifications.pendingDelivery).toBe(true); expect(sent).not.toHaveBeenCalled();
+  notifications.onParentAgentSettled();
+  expect(sent).toHaveBeenCalledOnce(); expect(notifications.pendingDelivery).toBe(false);
+  expect(observations).toContain(true); expect(observations.at(-1)).toBe(false);
+});

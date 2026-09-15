@@ -20,13 +20,13 @@ import type { AgentConfig } from "#src/types";
  * Project-level agents override global ones with the same name.
  * Any name is allowed — names matching defaults (e.g. "Explore") override them.
  */
-export function loadCustomAgents(cwd: string): Map<string, AgentConfig> {
-  const globalDir = join(getAgentDir(), "agents");
+export function loadCustomAgents(cwd: string, options: { agentDir?: string; includeProject?: boolean } = {}): Map<string, AgentConfig> {
+  const globalDir = join(options.agentDir ?? getAgentDir(), "agents");
   const projectDir = join(cwd, ".pi", "agents");
 
   const agents = new Map<string, AgentConfig>();
   loadFromDir(globalDir, agents, "global");   // lower priority
-  loadFromDir(projectDir, agents, "project");  // higher priority (overwrites)
+  if (options.includeProject !== false) loadFromDir(projectDir, agents, "project");  // higher priority (overwrites)
   return agents;
 }
 

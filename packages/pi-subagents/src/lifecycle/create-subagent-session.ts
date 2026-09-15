@@ -21,6 +21,7 @@ import {
 import type { AgentConfigLookup } from "#src/config/agent-types";
 import type { ChildLifecyclePublisher } from "#src/lifecycle/child-lifecycle";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
+import { getSubagentHost } from "#src/service/host";
 import { SubagentSession } from "#src/lifecycle/subagent-session";
 import { AskParentTool, type QuestionRecorder } from "#src/session/ask-parent-tool";
 import type { EnvInfo } from "#src/session/env";
@@ -140,6 +141,8 @@ export type SubagentSessionIO = EnvironmentIO & SessionFactoryIO;
  */
 export interface SubagentSessionDeps {
   io: SubagentSessionIO;
+  /** Captured by the parent generation so host retirement cannot enable standalone defaults. */
+  host?: ReturnType<typeof getSubagentHost>;
   exec: ShellExec;
   registry: AgentConfigLookup;
   /** Publishes the child-execution lifecycle so consumers can observe it. */
@@ -157,6 +160,9 @@ export interface SubagentSessionDeps {
 /** Per-spawn parameters — the fields that vary per child session. */
 export interface CreateSubagentSessionParams {
   snapshot: ParentSnapshot;
+  /** Native run identity, supplied by the owning Subagent. */
+  runId?: string;
+  signal?: AbortSignal;
   type: SubagentType;
   /** Resolved workspace cwd; undefined → parent cwd. */
   cwd?: string;
@@ -202,11 +208,27 @@ export async function createSubagentSession(
 ): Promise<SubagentSession> {
   const { snapshot, type } = params;
   const parentSessionId = params.parentSession?.parentSessionId;
+  const host = deps.host ?? getSubagentHost(parentSessionId);
+  const assertActive = () => {
+    params.signal?.throwIfAborted();
+    host?.assertActive();
+  };
+  assertActive();
+  if (host && !params.runId) throw new Error("A hosted child requires a native run id");
   deps.lifecycle.spawning({ agentName: type, parentSessionId });
 
   // Resolve working directory upfront - needed for detectEnv before assembly.
   const effectiveCwd = params.cwd ?? snapshot.cwd;
-  const env = await deps.io.detectEnv(deps.exec, effectiveCwd);
+  const io = host ? {
+    ...deps.io,
+    ...await host.host.createSessionFactory(
+      { parentSessionId: parentSessionId!, runId: params.runId!, cwd: effectiveCwd },
+      params.signal ? AbortSignal.any([params.signal, host.signal]) : host.signal,
+    ),
+  } : deps.io;
+  assertActive();
+  const env = await io.detectEnv(deps.exec, effectiveCwd);
+  assertActive();
 
   // Assemble session configuration (synchronous, no SDK objects).
   const cfg = assembleSessionConfig(
@@ -226,12 +248,12 @@ export async function createSubagentSession(
     },
     env,
     deps.registry,
-    deps.io.assemblerIO,
+    io.assemblerIO,
   );
 
-  const agentDir = deps.io.getAgentDir();
-  const sessionSettings = deps.io.createSettingsManager(cfg.effectiveCwd, agentDir);
-  const loaderSettings = deps.io.createLoaderSettingsManager(sessionSettings);
+  const agentDir = io.getAgentDir();
+  const sessionSettings = io.createSettingsManager(cfg.effectiveCwd, agentDir);
+  const loaderSettings = io.createLoaderSettingsManager(sessionSettings);
 
   // Children inherit the parent's skills and every extension the composition
   // root did not exclude (#696).
@@ -241,7 +263,7 @@ export async function createSubagentSession(
   // would defeat prompt_mode: replace. Parent context, if wanted, reaches the
   // subagent via prompt_mode: append (parentSystemPrompt is embedded in
   // systemPromptOverride) or inherit_context (conversation).
-  const loader = deps.io.createResourceLoader({
+  const loader = io.createResourceLoader({
     cwd: cfg.effectiveCwd,
     agentDir,
     settingsManager: loaderSettings,
@@ -252,17 +274,18 @@ export async function createSubagentSession(
     appendSystemPromptOverride: () => [],
   });
   await loader.reload();
+  assertActive();
 
   // Create a persisted SessionManager so transcripts are written in Pi's
   // official JSONL format. Falls back to a temp directory when the parent
   // session is not persisted (e.g. headless/API mode).
-  const sessionDir = deps.io.deriveSessionDir(params.parentSession?.parentSessionFile, cfg.effectiveCwd);
-  const sessionManager = deps.io.createSessionManager(cfg.effectiveCwd, sessionDir);
+  const sessionDir = io.deriveSessionDir(params.parentSession?.parentSessionFile, cfg.effectiveCwd);
+  const sessionManager = io.createSessionManager(cfg.effectiveCwd, sessionDir);
   sessionManager.newSession({ parentSession: params.parentSession?.parentSessionId });
   const sessionId = sessionManager.getSessionId();
 
   const childTools = buildChildTools(params);
-  const { session } = await deps.io.createSession({
+  const { session } = await io.createSession({
     cwd: cfg.effectiveCwd,
     agentDir,
     sessionManager,
@@ -276,6 +299,14 @@ export async function createSubagentSession(
     thinkingLevel: cfg.thinkingLevel,
   });
 
+  const identity = {
+    parentSessionId: parentSessionId ?? "",
+    runId: params.runId ?? "",
+    childSessionId: sessionId,
+  };
+  let releaseHost: (() => void) | undefined;
+  let unsubscribeHost: (() => void) | undefined;
+  const abort = () => { void session.abort(); };
   const subagentSession = new SubagentSession(session, {
     outputFile: sessionManager.getSessionFile(),
     sessionId,
@@ -284,6 +315,12 @@ export async function createSubagentSession(
     agentMaxTurns: cfg.agentMaxTurns,
     parentContext: snapshot.parentContext,
     lifecycle: deps.lifecycle,
+    disposeHost: () => {
+      host?.signal.removeEventListener("abort", abort);
+      params.signal?.removeEventListener("abort", abort);
+      unsubscribeHost?.();
+      releaseHost?.();
+    },
   });
 
   // Publish session-created before bindExtensions() so observers (e.g. the
@@ -291,11 +328,18 @@ export async function createSubagentSession(
   // entry in place for the first permission check during child extension
   // initialization. The event bus dispatches synchronously, so a synchronous
   // subscriber completes before this returns.
-  deps.lifecycle.sessionCreated({ sessionId, parentSessionId });
-
   try {
+    releaseHost = host?.host.bindSession?.(session, identity);
+    assertActive();
+    deps.lifecycle.sessionCreated({ sessionId, parentSessionId });
+    unsubscribeHost = host?.observe(session, identity);
+    host?.signal.addEventListener("abort", abort, { once: true });
+    params.signal?.addEventListener("abort", abort, { once: true });
     // Bind extensions so that session_start fires and extensions can initialize.
     await session.bindExtensions({});
+    assertActive();
+    await host?.host.admitSession(session, identity);
+    assertActive();
   } catch (err) {
     // Binding failed after session-created — dispose (child session_shutdown +
     // session.dispose() + emit disposed) before rethrowing so neither the

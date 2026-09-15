@@ -231,12 +231,16 @@ export class NotificationManager implements NotificationSystem {
   private pending: PendingAnnouncement[] = [];
   private parentRunActive = false;
   private disposed = false;
+  private delivering = false;
+
+  get pendingDelivery(): boolean { return this.pending.length > 0 || this.delivering; }
 
   constructor(
     private sendMessage: (
       msg: { customType: string; content: string; display: boolean; details?: unknown },
       opts?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
     ) => void,
+    private readonly onWorkloadChanged: () => void = () => {},
   ) {}
 
   sendCompletion(record: Subagent): void {
@@ -273,6 +277,7 @@ export class NotificationManager implements NotificationSystem {
     );
     if (existing === -1) this.pending.push(entry);
     else this.pending[existing] = entry;
+    this.onWorkloadChanged();
   }
 
   /**
@@ -289,6 +294,7 @@ export class NotificationManager implements NotificationSystem {
     if (!this.canAnnounceUpdate(record)) return;
     if (this.parentRunActive) {
       this.pending.push({ kind: "update", record, message });
+      this.onWorkloadChanged();
       return;
     }
     this.emitUpdate(record, message);
@@ -352,6 +358,7 @@ export class NotificationManager implements NotificationSystem {
    */
   onParentAgentSettled(): void {
     this.parentRunActive = false;
+    this.delivering = true;
     const withheld = this.pending.splice(0);
     for (const entry of withheld) {
       try {
@@ -361,12 +368,15 @@ export class NotificationManager implements NotificationSystem {
         debugLog("notification render", err);
       }
     }
+    this.delivering = false;
+    this.onWorkloadChanged();
   }
 
   /** Terminal: the manager stops announcing anything, now and afterwards. */
   dispose(): void {
     this.disposed = true;
     this.pending.length = 0;
+    this.onWorkloadChanged();
   }
 
   private emitUpdate(record: Subagent, message: string): void {

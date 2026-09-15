@@ -83,18 +83,19 @@ export interface ResumeOptions {
    */
   claimOutcome?: boolean;
   /**
-   * Cancels the resumed turn loop. `abort(id)` does not reach it: a resume does
-   * not run under the record's own abort controller.
+   * Cancels the resumed turn loop. Native `abort(id)` also reaches this turn's
+   * own controller, independent of the initial run's controller.
    */
   signal?: AbortSignal;
 }
 
-/**
- * What a resume attempt produced.
- *
- * A resumed run that *failed* is still `resumed` — the snapshot carries
- * `status: "error"` and the message. `refused` means no turn loop ran.
- */
+/** Admission only; completion remains owned by the native run and lifecycle events. */
+export type ResumeStartResult =
+  | { kind: "started"; record: SubagentRecord }
+  | { kind: "refused"; reason: ResumeRefusalReason };
+
+/** A failed resumed turn is still `resumed`; its terminal snapshot carries the error.
+ * `refused` means no turn loop ran. */
 export type ResumeResult =
   | { kind: "resumed"; record: SubagentRecord }
   | { kind: "refused"; reason: ResumeRefusalReason };
@@ -136,6 +137,8 @@ export interface SubagentsService {
    * and no turn loop is started.
    */
   resume(id: string, prompt: string, options?: ResumeOptions): Promise<ResumeResult>;
+  /** Synchronous admission ACK for hosts whose requests must not wait for a model turn. */
+  startResume(id: string, prompt: string, options?: ResumeOptions): ResumeStartResult;
 
   /** Wait for all running and queued agents to complete. */
   waitForAll(): Promise<void>;
@@ -165,22 +168,28 @@ export const SUBAGENT_EVENTS = {
 
 // ---- Accessor functions ----
 
-const SERVICE_KEY = Symbol.for("@gotgenes/pi-subagents:service");
+const SERVICE_KEY = Symbol.for("@gotgenes/pi-subagents:services.v1");
 
-/** Publish the SubagentsService on globalThis for cross-extension access. */
-export function publishSubagentsService(service: SubagentsService): void {
-  (globalThis as Record<symbol, unknown>)[SERVICE_KEY] = service;
+function services(): Map<string, { service: SubagentsService }> {
+  const root = globalThis as Record<symbol, unknown>;
+  return (root[SERVICE_KEY] ??= new Map()) as Map<string, { service: SubagentsService }>;
 }
 
-/** Retrieve the published SubagentsService, or undefined if not yet published. */
-export function getSubagentsService(): SubagentsService | undefined {
-  return (globalThis as Record<symbol, unknown>)[SERVICE_KEY] as
-    | SubagentsService
-    | undefined;
+/** Register one parent generation; a stale disposer cannot remove its replacement. */
+export function registerSubagentsService(parentSessionId: string, service: SubagentsService): () => void {
+  if (!parentSessionId.trim()) throw new Error("A parent session id is required");
+  const registry = services();
+  if (registry.has(parentSessionId)) throw new Error("Subagents service is already registered for this parent");
+  const owner = { service };
+  registry.set(parentSessionId, owner);
+  return () => {
+    if (registry.get(parentSessionId) === owner) registry.delete(parentSessionId);
+  };
 }
 
-/** Remove the SubagentsService from globalThis (call on shutdown/reload). */
-export function unpublishSubagentsService(): void {
-  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- Symbol-keyed global property; Map.delete() is not applicable
-  delete (globalThis as Record<symbol, unknown>)[SERVICE_KEY];
+/** An omitted parent is safe only when exactly one parent is registered. */
+export function getSubagentsService(parentSessionId?: string): SubagentsService | undefined {
+  const registry = services();
+  if (parentSessionId !== undefined) return registry.get(parentSessionId)?.service;
+  return registry.size === 1 ? registry.values().next().value?.service : undefined;
 }

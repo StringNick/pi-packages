@@ -19,13 +19,16 @@ import {
 // ── createBlockingFactory ────────────────────────────────────────────────────
 
 /**
- * A factory whose creation never resolves.
+ * A factory whose creation waits until native cancellation.
  *
  * Use when a test needs an agent to stay "running" with no session yet created
  * (e.g., to inspect queued records or test abort behavior).
  */
 export function createBlockingFactory() {
-  return vi.fn((_params: CreateSubagentSessionParams) => new Promise<SubagentSession>(() => {}));
+  return vi.fn((params: CreateSubagentSessionParams) => new Promise<SubagentSession>((_resolve, reject) => {
+    if (params.signal?.aborted) { reject(params.signal.reason); return; }
+    params.signal?.addEventListener("abort", () => reject(params.signal?.reason), { once: true });
+  }));
 }
 
 // ── createSessionFactory ─────────────────────────────────────────────────────

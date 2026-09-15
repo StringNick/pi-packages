@@ -8,6 +8,12 @@ const external = [/^@earendil-works\//, "@sinclair/typebox"];
 const plugin = dts({ tsconfig: "./tsconfig.json" });
 
 export default [
+  {
+    input: "src/service/host.ts",
+    output: { file: "dist/host.d.ts", format: "es" },
+    external,
+    plugins: [plugin],
+  },
   // . entry: cross-extension service contract (spawn/abort/workspace seam)
   {
     input: "src/service/service.ts",

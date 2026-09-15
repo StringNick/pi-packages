@@ -96,8 +96,10 @@ export class SettingsManager {
   private _promptInheritance: Record<string, PromptInheritance> = {};
 
   private readonly emit: SettingsEmit;
-  private readonly cwd: string;
-  private readonly agentDir: string;
+  private cwd: string;
+  private agentDir: string;
+  private includeProject = true;
+  private assertContext: (() => void) | undefined;
   private readonly onMaxConcurrentChanged: (() => void) | undefined;
 
   constructor(deps: { emit: SettingsEmit; cwd: string; agentDir: string; onMaxConcurrentChanged?: () => void }) {
@@ -105,6 +107,28 @@ export class SettingsManager {
     this.cwd = deps.cwd;
     this.agentDir = deps.agentDir;
     this.onMaxConcurrentChanged = deps.onMaxConcurrentChanged;
+  }
+
+  /** Bind already-admitted host context; never retain a previous project's effective values. */
+  bindContext(cwd: string, agentDir: string, includeProject: boolean, assertContext: () => void): void {
+    assertContext();
+    this.cwd = cwd; this.agentDir = agentDir; this.includeProject = includeProject; this.assertContext = assertContext;
+    this._defaultMaxTurns = undefined;
+    this._graceTurns = DEFAULT_GRACE_TURNS;
+    this._maxConcurrent = DEFAULT_MAX_CONCURRENT;
+    this._consumedSessionRetentionMinutes = DEFAULT_CONSUMED_RETENTION_MINUTES;
+    this._unconsumedSessionRetentionMinutes = DEFAULT_UNCONSUMED_RETENTION_MINUTES;
+    this._abortAllOnInterrupt = DEFAULT_ABORT_ALL_ON_INTERRUPT;
+    this._midRunUpdates = DEFAULT_MID_RUN_UPDATES;
+    this._excludedExtensionPackages = [];
+    this._promptInheritance = {};
+    this.load();
+    this.onMaxConcurrentChanged?.();
+  }
+
+  assertProjectWriteAllowed(): void {
+    this.assertContext?.();
+    if (!this.includeProject) throw new Error("Project subagent settings require host project trust");
   }
 
   // ── defaultMaxTurns: 0 or undefined → unlimited (undefined); else max(1, n) ──
@@ -192,7 +216,8 @@ export class SettingsManager {
    * Returns the raw loaded settings object.
    */
   load(): SubagentsSettings {
-    const settings = loadSettings(this.agentDir, this.cwd);
+    this.assertContext?.();
+    const settings = loadSettings(this.agentDir, this.cwd, this.includeProject);
     if (typeof settings.maxConcurrent === "number") this.maxConcurrent = settings.maxConcurrent;
     if (typeof settings.defaultMaxTurns === "number") this.defaultMaxTurns = settings.defaultMaxTurns;
     if (typeof settings.graceTurns === "number") this.graceTurns = settings.graceTurns;
@@ -304,6 +329,7 @@ export class SettingsManager {
    * and return the toast the UI should display.
    */
   saveAndNotify(successMsg: string): { message: string; level: "info" | "warning" } {
+    this.assertProjectWriteAllowed();
     const snap = this.snapshot();
     const persisted = saveSettings(snap, this.cwd);
     this.emit("subagents:settings_changed", { settings: snap, persisted });
@@ -406,11 +432,12 @@ function projectPath(cwd: string): string {
 }
 
 /** Load merged settings: global provides defaults, project overrides. */
-export function loadSettings(agentDir: string, cwd: string): SubagentsSettings {
+export function loadSettings(agentDir: string, cwd: string, includeProject = true): SubagentsSettings {
   return loadLayeredSettings({
     agentDir,
     cwd,
     filename: "subagents.json",
+    includeProject,
     sanitize,
     warnLabel: "pi-subagents",
   } satisfies LayeredSettingsSource<SubagentsSettings>);

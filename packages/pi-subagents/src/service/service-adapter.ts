@@ -8,11 +8,12 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { parseThinkingLevel, thinkingLevelError } from "#src/config/thinking-level";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
-import type { AgentSpawnConfig, ResumeCallOptions, ResumeOutcome } from "#src/lifecycle/subagent-manager";
+import type { AgentSpawnConfig, ResumeAdmission, ResumeCallOptions, ResumeOutcome } from "#src/lifecycle/subagent-manager";
 import type { WorkspaceProvider } from "#src/lifecycle/workspace";
 import type {
   ResumeOptions,
   ResumeResult,
+  ResumeStartResult,
   SpawnOptions,
   SubagentRecord,
   SubagentsService,
@@ -30,6 +31,7 @@ export interface SubagentManagerLike {
   hasRunning(): boolean;
   registerWorkspaceProvider(provider: WorkspaceProvider): () => void;
   resume(id: string, prompt: string, options: ResumeCallOptions): Promise<ResumeOutcome>;
+  startResume(id: string, prompt: string, options: ResumeCallOptions): ResumeAdmission;
 }
 
 /**
@@ -101,6 +103,11 @@ export class SubagentsServiceAdapter implements SubagentsService {
     }
     const outcome = await record.steer(message);
     return outcome.kind !== "rejected";
+  }
+
+  startResume(id: string, prompt: string, options?: ResumeOptions): ResumeStartResult {
+    const admission = this.manager.startResume(id, prompt, { claimOutcome: options?.claimOutcome, signal: options?.signal });
+    return admission.kind === "refused" ? admission : { kind: "started", record: toSubagentRecord(admission.record) };
   }
 
   async resume(id: string, prompt: string, options?: ResumeOptions): Promise<ResumeResult> {

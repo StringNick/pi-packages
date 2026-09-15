@@ -369,7 +369,7 @@ describe("SubagentManager", () => {
         const factory = vi.fn((_params: CreateSubagentSessionParams) => {
           creations += 1;
           return creations === 1
-            ? new Promise<SubagentSession>(() => {})
+            ? createBlockingFactory()(_params)
             : Promise.resolve(toSubagentSession(createSubagentSessionStub()));
         });
         ({ manager } = createManager({
@@ -1572,7 +1572,8 @@ describe("SubagentManager", () => {
 
         await manager.resume(id, "continue", { signal });
 
-        expect(stub.resumeTurnLoop).toHaveBeenCalledWith("continue", signal);
+        expect(stub.resumeTurnLoop).toHaveBeenCalledWith("continue", expect.any(AbortSignal));
+        expect(stub.resumeTurnLoop.mock.calls[0][1]?.aborted).toBe(signal.aborted);
       });
     });
   });

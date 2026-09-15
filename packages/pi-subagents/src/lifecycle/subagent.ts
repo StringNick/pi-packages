@@ -29,6 +29,8 @@ export interface SubagentLifecycleObserver {
 	onSessionCreated?(agent: Subagent): void;
 	/** Fires once when the run completes or fails (for concurrency drain). */
 	onRunFinished?(agent: Subagent): void;
+	/** All execution cleanup has settled, including an interrupted run. */
+	onExecutionSettled?(agent: Subagent): void;
 	/**
 	 * Fires once a resumed run is under way — after the record is rewound, so a
 	 * subscriber reading it sees the run that just started rather than the
@@ -167,6 +169,16 @@ export class Subagent {
 
 	readonly abortController: AbortController;
 	private _promise?: Promise<void>;
+	private _executionPending = false;
+	private resumeAbort?: AbortController;
+	get executionPending(): boolean { return this._executionPending; }
+	private trackExecution(start: () => Promise<void>): Promise<void> {
+		this._executionPending = true;
+		return start().finally(() => {
+			this._executionPending = false;
+			this.execution.observer?.onExecutionSettled?.(this);
+		});
+	}
 	/** Handle on the agent's current run — the initial run, or the live resume that replaced it. */
 	get promise(): Promise<void> | undefined { return this._promise; }
 
@@ -234,7 +246,7 @@ export class Subagent {
 		// its session, and "still running" describes that record better than "no
 		// session" does. A queued agent is not running and keeps the no-session
 		// answer, which is the truth about it.
-		if (this.isRunning()) return "still-running";
+		if (this.isRunning() || (this.status !== "queued" && this.executionPending)) return "still-running";
 		if (!this.isSessionReady()) return this._sessionReleased ? "session-released" : "no-session";
 		if (this.workspaceDisposed) return "workspace-disposed";
 		return undefined;
@@ -349,6 +361,8 @@ export class Subagent {
 		const runConfig = this.execution.getRunConfig?.();
 		try {
 			this.subagentSession = await this.execution.createSubagentSession({
+				runId: this.id,
+				signal: this.abortController.signal,
 				snapshot: this.execution.snapshot,
 				type: this.type,
 				cwd,
@@ -420,7 +434,7 @@ export class Subagent {
 	 * Stores the run promise so it is awaitable via the `promise` getter.
 	 */
 	start(): void {
-		this._promise = this.guardedRun();
+		this._promise = this.trackExecution(() => this.guardedRun());
 	}
 
 	/**
@@ -431,7 +445,7 @@ export class Subagent {
 	 * slot finally frees.
 	 */
 	scheduleVia(schedule: (thunk: () => Promise<void>) => Promise<void>): void {
-		this._promise = schedule(() => this.guardedRun());
+		this._promise = this.trackExecution(() => schedule(() => this.guardedRun()));
 	}
 
 	/**
@@ -469,8 +483,8 @@ export class Subagent {
 	 * The returned promise always resolves (errors are captured internally) and is
 	 * published as the `promise` getter, so waiters track the resume rather than
 	 * the settled handle of the original run.
-	 * The parent signal flows straight through to resumeTurnLoop — resume does not
-	 * route through this.abortController.
+	 * Each resumed turn has its own abort controller, joined to the caller signal;
+	 * stopping a resumed turn does not depend on the initial run's spent controller.
 	 */
 	resume(prompt: string, signal?: AbortSignal): Promise<void> {
 		const subagentSession = this.subagentSession;
@@ -480,23 +494,37 @@ export class Subagent {
 			return Promise.reject(new Error("Subagent not configured for resume — missing session"));
 		}
 
-		this._promise = this.runResume(subagentSession, prompt, signal);
+		const controller = new AbortController();
+		this.resumeAbort = controller;
+		this._promise = this.trackExecution(() => this.runResume(subagentSession, prompt,
+			signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
+		)).finally(() => { if (this.resumeAbort === controller) this.resumeAbort = undefined; });
 		return this._promise;
 	}
 
 	/** The resume body. Always resolves — errors terminate through failResume(). */
 	private async runResume(subagentSession: SubagentSession, prompt: string, signal?: AbortSignal): Promise<void> {
 		this.resetForResume(Date.now());
-		this.execution.observer?.onResumeStarted?.(this);
-		this.listeners.attachObserver(subscribeSubagentObserver(subagentSession, this.state, {
-			onCompact: (info) => this.execution.observer?.onCompacted?.(this, info),
-		}));
-
 		try {
-			this.completeResume(await subagentSession.resumeTurnLoop(prompt, signal));
+			this.execution.observer?.onResumeStarted?.(this);
+			this.listeners.attachObserver(subscribeSubagentObserver(subagentSession, this.state, {
+				onCompact: (info) => this.execution.observer?.onCompacted?.(this, info),
+			}));
+			const result = await subagentSession.resumeTurnLoop(prompt, signal);
+			if (signal?.aborted) this.stopResume();
+			else this.completeResume(result);
 		} catch (err) {
-			this.failResume(err);
+			if (signal?.aborted) this.stopResume();
+			else this.failResume(err);
 		}
+	}
+
+	private stopResume(): void {
+		this.markStopped();
+		this.clearPendingQuestion();
+		this.listeners.release();
+		this.disposeWorkspaceQuietly("stopped");
+		this.execution.observer?.onResumeFinished?.(this);
 	}
 
 	/** Terminate a resume as completed: mark, dispose or hold the workspace, release listeners, notify observer. */
@@ -606,6 +634,7 @@ export class Subagent {
 	abort(): boolean {
 		if (!this.isRunning()) return false;
 		this.abortController.abort();
+		this.resumeAbort?.abort();
 		this.markStopped();
 		return true;
 	}

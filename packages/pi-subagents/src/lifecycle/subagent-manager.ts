@@ -46,13 +46,17 @@ export type ResumeRefusalReason = ResumeRefusal | "unknown-agent";
  * A resumed run that *failed* is still `resumed` — the record carries the
  * error. `refused` means the turn loop never ran.
  */
+export type ResumeAdmission =
+  | { kind: "started"; record: Subagent }
+  | { kind: "refused"; reason: ResumeRefusalReason };
+
 export type ResumeOutcome =
   | { kind: "resumed"; record: Subagent }
   | { kind: "refused"; reason: ResumeRefusalReason };
 
 /** Per-call knobs for a resume; both doors pass their own. */
 export interface ResumeCallOptions {
-  /** Cancels the resumed turn loop. A resume does not run under the record's own controller. */
+  /** Caller cancellation joins the resumed turn's native stop controller. */
   signal?: AbortSignal;
   /**
    * The caller will deliver this outcome to the parent, so nothing announces
@@ -131,6 +135,8 @@ export function resolveRetentionWindow(
 export interface SubagentManagerObserver {
   onSubagentStarted(record: Subagent): void;
   onSubagentCompleted(record: Subagent): void;
+  onSubagentExecutionSettled?(record: Subagent): void;
+  onSubagentCleanupChanged?(): void;
   /**
    * Fires when a resume starts, from whichever front door asked for it.
    * Required: a consumer that tracks the widget's live set has to learn that a
@@ -163,11 +169,12 @@ export interface SubagentManagerOptions {
   /** Concurrency limiter — schedules background run thunks FIFO against the limit. */
   limiter: ConcurrencyLimiter;
   /** Base working directory handed to a workspace provider (the parent cwd). */
-  baseCwd: string;
+  baseCwd: string | (() => string);
   getRunConfig?: () => RunConfig;
   /** Live accessor for the session-retention windows; defaults applied when absent. */
   getRetentionPolicy?: () => RetentionPolicy;
   observer?: SubagentManagerObserver;
+  assertAdmission?(): void;
   /** Agent registry, consulted to canonicalize a spawn's type and resolve its config. */
   registry: SpawnTypeResolver;
 }
@@ -200,11 +207,33 @@ export interface AgentSpawnConfig {
 
 export class SubagentManager {
   private agents = new Map<string, Subagent>();
+  private disposed = false;
+  private cleanupCount = 0;
+  private readonly cleanupPromises = new Set<Promise<void>>();
+  get pendingCleanup(): boolean { return this.cleanupCount > 0; }
+  private notifyCleanupChanged(): void {
+    try { this.observer?.onSubagentCleanupChanged?.(); } catch (error) { debugLog("subagent cleanup observer", error); }
+  }
+  private async trackCleanup(task: () => Promise<void>): Promise<void> {
+    this.cleanupCount++;
+    this.notifyCleanupChanged();
+    let pending: Promise<void> | undefined;
+    try {
+      pending = task();
+      this.cleanupPromises.add(pending);
+      await pending;
+    } finally {
+      if (pending) this.cleanupPromises.delete(pending);
+      this.cleanupCount--;
+      this.notifyCleanupChanged();
+    }
+  }
   private sweepInterval: ReturnType<typeof setInterval>;
   private readonly observer?: SubagentManagerObserver;
+  private readonly assertAdmission?: () => void;
   private readonly createSubagentSession: (params: CreateSubagentSessionParams) => Promise<SubagentSession>;
   private readonly limiter: ConcurrencyLimiter;
-  private readonly baseCwd: string;
+  private readonly baseCwd: string | (() => string);
   private getRunConfig?: () => RunConfig;
   private getRetentionPolicy?: () => RetentionPolicy;
   private readonly registry: SpawnTypeResolver;
@@ -220,6 +249,7 @@ export class SubagentManager {
     this.limiter = options.limiter;
     this.baseCwd = options.baseCwd;
     this.observer = options.observer;
+    this.assertAdmission = options.assertAdmission;
     this.getRunConfig = options.getRunConfig;
     this.getRetentionPolicy = options.getRetentionPolicy;
     this.registry = options.registry;
@@ -263,6 +293,9 @@ export class SubagentManager {
       // the run rather than announcements.
       onRunFinished: (agent) => {
         try { this.observer?.onSubagentCompleted(agent); } catch (err) { debugLog("onSubagentCompleted observer", err); }
+      },
+      onExecutionSettled: (agent) => {
+        try { this.observer?.onSubagentExecutionSettled?.(agent); } catch (err) { debugLog("onSubagentExecutionSettled observer", err); }
       },
       onResumeStarted: (agent) => {
         try { this.observer?.onSubagentResuming(agent); } catch (err) { debugLog("onSubagentResuming observer", err); }
@@ -346,6 +379,8 @@ export class SubagentManager {
     prompt: string,
     options: AgentSpawnConfig,
   ): string {
+    if (this.disposed) throw new Error("Subagent manager is disposed");
+    this.assertAdmission?.();
     const { type, isBackground } = resolved;
     const id = randomUUID().slice(0, 17);
     const record = new Subagent({
@@ -361,7 +396,7 @@ export class SubagentManager {
         createSubagentSession: this.createSubagentSession,
         snapshot,
         prompt,
-        baseCwd: this.baseCwd,
+        baseCwd: typeof this.baseCwd === "function" ? this.baseCwd() : this.baseCwd,
         observer: this.buildObserver(options),
         getRunConfig: this.getRunConfig,
         getWorkspaceProvider: () => this._workspaceProvider,
@@ -398,16 +433,25 @@ export class SubagentManager {
    * words the answer. Delegates to Subagent.resume(), which owns the observer
    * subscription lifecycle.
    */
-  async resume(id: string, prompt: string, options: ResumeCallOptions = {}): Promise<ResumeOutcome> {
+  startResume(id: string, prompt: string, options: ResumeCallOptions = {}): ResumeAdmission {
+    if (this.disposed) throw new Error("Subagent manager is disposed");
+    options.signal?.throwIfAborted();
+    this.assertAdmission?.();
     const agent = this.agents.get(id);
     if (!agent) return { kind: "refused", reason: "unknown-agent" };
     const refusal = agent.resumeRefusal;
     if (refusal) return { kind: "refused", reason: refusal };
-    // Before the resume starts: resetForResume runs synchronously inside
-    // resume(), so a claim taken afterwards would miss the terminal edge.
+    // resetForResume reserves the record synchronously before any await.
     if (options.claimOutcome) agent.claim();
-    await agent.resume(prompt, options.signal);
-    return { kind: "resumed", record: agent };
+    void agent.resume(prompt, options.signal).catch((error) => { debugLog("resume lifecycle failed", error); });
+    return { kind: "started", record: agent };
+  }
+
+  async resume(id: string, prompt: string, options: ResumeCallOptions = {}): Promise<ResumeOutcome> {
+    const admission = this.startResume(id, prompt, options);
+    if (admission.kind === "refused") return admission;
+    await admission.record.promise;
+    return { kind: "resumed", record: admission.record };
   }
 
   getRecord(id: string): Subagent | undefined {
@@ -441,8 +485,10 @@ export class SubagentManager {
    * extensions shut down.
    */
   private removeRecord(id: string, record: Subagent): Promise<void> {
-    this.agents.delete(id);
-    return record.disposeSession();
+    return this.trackCleanup(async () => {
+      this.agents.delete(id);
+      await record.disposeSession();
+    });
   }
 
   /**
@@ -455,12 +501,12 @@ export class SubagentManager {
     const policy = this.getRetentionPolicy?.() ?? DEFAULT_RETENTION_POLICY;
     const now = Date.now();
     for (const record of this.agents.values()) {
-      if (record.isActive()) continue;
+      if (record.isActive() || record.executionPending) continue;
       if (!record.isSessionReady()) continue; // already released, or never had a session
       const { referenceAt, windowMinutes } = resolveRetentionWindow(record, policy);
       // Fire-and-forget: the sweep runs on an interval with no one to await it,
       // and Subagent.releaseSession() already swallows a failing teardown.
-      if (now - referenceAt >= windowMinutes * 60_000) void record.releaseSession();
+      if (now - referenceAt >= windowMinutes * 60_000) void this.trackCleanup(() => record.releaseSession()).catch(error => debugLog("session retention cleanup", error));
     }
   }
 
@@ -471,7 +517,7 @@ export class SubagentManager {
   async clearCompleted(): Promise<void> {
     const teardowns: Promise<void>[] = [];
     for (const [id, record] of this.agents) {
-      if (record.isActive()) continue;
+      if (record.isActive() || record.executionPending) continue;
       teardowns.push(this.removeRecord(id, record));
     }
     await Promise.all(teardowns);
@@ -515,7 +561,7 @@ export class SubagentManager {
   /** Promises of all running/queued agents that have one. */
   private pendingPromises(): Promise<void>[] {
     return [...this.agents.values()]
-      .filter(r => r.isActive())
+      .filter(r => r.isActive() || r.executionPending)
       .map(r => r.promise)
       .filter((p): p is Promise<void> => p != null);
   }
@@ -527,11 +573,15 @@ export class SubagentManager {
    * abandoning its siblings.
    */
   async dispose(): Promise<void> {
+    this.disposed = true;
     clearInterval(this.sweepInterval);
-    // Drop pending thunks
+    this.abortAll();
     this.limiter.clear();
-    const teardowns = [...this.agents.values()].map(record => record.disposeSession());
+    const records = [...this.agents.values()];
     this.agents.clear();
-    await Promise.allSettled(teardowns);
+    // Include setup/resume promises: a session constructed late must be torn down too.
+    await Promise.allSettled(records.map(record => record.promise));
+    await Promise.allSettled([...this.cleanupPromises]);
+    await Promise.allSettled(records.map(record => record.disposeSession()));
   }
 }
