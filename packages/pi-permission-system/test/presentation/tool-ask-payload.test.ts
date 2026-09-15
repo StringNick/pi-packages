@@ -72,6 +72,19 @@ describe("buildToolAskPayload", () => {
       });
     });
 
+    test("carries the command unmasked, because the approver must see what runs", () => {
+      // The log masks a value bound to a sensitive name; the prompt never does.
+      // Masking here would blind the person being asked to authorize the call
+      // (`docs/decisions/0010-permission-log-secret-exposure.md`).
+      const command = 'KEY="sk-secret-value" curl https://x';
+      const payload = buildPayload({
+        check: toolResult("bash", { command }),
+        surface: "bash",
+      });
+
+      expect(payload.request.value).toBe(command);
+    });
+
     test("carries the executed unit of a wrapper (#713)", () => {
       const payload = buildPayload({
         check: toolResult("bash", {

@@ -12,6 +12,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
+  resetWarmBashParser,
+  warmBashParser,
+} from "#src/access-intent/bash/parser";
+import {
   DEFAULT_EXTENSION_CONFIG,
   type PermissionSystemExtensionConfig,
 } from "#src/config/extension-config";
@@ -106,8 +110,85 @@ describe("createPermissionSystemLogger", () => {
         apiKey: "[redacted]",
       });
     });
+  });
 
-    test("leaves a bash command string unredacted, as documented", () => {
+  describe("masking a secret inside a command string", () => {
+    beforeEach(async () => {
+      resetWarmBashParser();
+      await warmBashParser();
+    });
+
+    afterEach(() => {
+      resetWarmBashParser();
+    });
+
+    test("masks a sensitively-named assignment in the review log", () => {
+      const logger = makeLogger();
+
+      logger.review("permission_request.waiting", {
+        toolName: "bash",
+        command: 'KEY="sk-secret-value" curl https://x',
+      });
+
+      const written = readFileSync(reviewLogPath, "utf8");
+      expect(written).not.toContain("sk-secret-value");
+      expect(JSON.parse(written.trim())).toMatchObject({
+        command: "KEY=[redacted] curl https://x",
+      });
+    });
+
+    test("masks the executed unit as well as the command", () => {
+      const logger = makeLogger();
+
+      logger.review("permission_request.waiting", {
+        toolName: "bash",
+        command: "sudo TOKEN=sk-outer-value deploy",
+        executedUnit: "TOKEN=sk-inner-value deploy",
+      });
+
+      const written = readFileSync(reviewLogPath, "utf8");
+      expect(written).not.toContain("sk-outer-value");
+      expect(written).not.toContain("sk-inner-value");
+      expect(JSON.parse(written.trim())).toMatchObject({
+        command: "sudo TOKEN=[redacted] deploy",
+        executedUnit: "TOKEN=[redacted] deploy",
+      });
+    });
+
+    test("masks a command in the debug log too, which the width bound does not touch", () => {
+      config.debugLog = true;
+      const logger = makeLogger();
+
+      logger.debug("permission.decision", {
+        toolName: "bash",
+        command: 'curl -H "Authorization: Bearer sk-secret-value" https://x',
+      });
+
+      const written = readFileSync(debugLogPath, "utf8");
+      expect(written).not.toContain("sk-secret-value");
+      expect(JSON.parse(written.trim())).toMatchObject({
+        command: 'curl -H "Authorization:[redacted]" https://x',
+      });
+    });
+
+    test("masks before bounding the width, so the cap never shortens a secret", () => {
+      config.reviewLogFieldMaxWidth = 40;
+      const logger = makeLogger();
+
+      logger.review("permission_request.waiting", {
+        toolName: "bash",
+        command: 'echo 0123456789 && KEY="sk-secret-value" deploy',
+      });
+
+      // Masked first, the whole command fits the bound and is written entire.
+      // Bounded first, the cap would cut it at 40 characters and the masker
+      // would see a truncated command, losing the trailing `deploy`.
+      expect(
+        JSON.parse(readFileSync(reviewLogPath, "utf8").trim()),
+      ).toMatchObject({ command: "echo 0123456789 && KEY=[redacted] deploy" });
+    });
+
+    test("leaves a flag-separated value, which binds no name any rule recognizes", () => {
       const logger = makeLogger();
 
       logger.review("permission_request.waiting", {
