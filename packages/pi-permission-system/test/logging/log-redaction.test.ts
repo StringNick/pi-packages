@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
-  isSensitiveLogKey,
+  isSensitiveName,
   REDACTED_PLACEHOLDER,
   redactedJsonStringify,
 } from "#src/logging/log-redaction";
 
-describe("isSensitiveLogKey", () => {
+describe("isSensitiveName", () => {
   test.each([
     "authorization",
     "Authorization",
@@ -26,8 +26,8 @@ describe("isSensitiveLogKey", () => {
     "cookie",
     "privateKey",
     "private_key",
-  ])("treats %s as sensitive", (key) => {
-    expect(isSensitiveLogKey(key)).toBe(true);
+  ])("treats %s as sensitive", (name) => {
+    expect(isSensitiveName(name)).toBe(true);
   });
 
   test.each([
@@ -42,8 +42,8 @@ describe("isSensitiveLogKey", () => {
     "requesterAgentName",
     "denialReason",
     "",
-  ])("treats %s as not sensitive", (key) => {
-    expect(isSensitiveLogKey(key)).toBe(false);
+  ])("treats %s as not sensitive", (name) => {
+    expect(isSensitiveName(name)).toBe(false);
   });
 });
 
