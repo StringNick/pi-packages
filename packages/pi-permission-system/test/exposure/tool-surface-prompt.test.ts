@@ -29,7 +29,7 @@ function inputs(overrides: Partial<ToolSurfaceInputs> = {}): ToolSurfaceInputs {
  * A prompt shaped the way `buildSystemPrompt` writes one: the preamble
  * sentence, the tool surface, then the layers that follow it.
  */
-function piPrompt(): string {
+function piAuthoredPrompt(): string {
   return [
     "You are an expert coding assistant operating inside pi, a coding agent harness.",
     "",
@@ -57,7 +57,7 @@ function piPrompt(): string {
 describe("renderToolSurface", () => {
   describe("removing what Pi wrote", () => {
     it("drops the tool list, the filler sentence, and the guidelines", () => {
-      const result = renderToolSurface(piPrompt(), inputs());
+      const result = renderToolSurface(piAuthoredPrompt(), inputs());
       const identity = result.slice(0, result.indexOf("Current working"));
 
       expect(identity).not.toContain("- bash: Execute bash commands");
@@ -67,7 +67,7 @@ describe("renderToolSurface", () => {
     });
 
     it("leaves everything outside the tool surface byte for byte", () => {
-      const result = renderToolSurface(piPrompt(), inputs());
+      const result = renderToolSurface(piAuthoredPrompt(), inputs());
 
       expect(result).toContain(
         "You are an expert coding assistant operating inside pi, a coding agent harness.",
@@ -97,7 +97,7 @@ describe("renderToolSurface", () => {
     });
 
     it("is unchanged by a second pass over its own output", () => {
-      const once = renderToolSurface(piPrompt(), inputs());
+      const once = renderToolSurface(piAuthoredPrompt(), inputs());
       const twice = renderToolSurface(once, inputs());
 
       expect(twice).toBe(once);
@@ -142,7 +142,7 @@ describe("renderToolSurface", () => {
 
   describe("placing this session's block", () => {
     it("appends the block after every layer a child inherits", () => {
-      const result = renderToolSurface(piPrompt(), inputs());
+      const result = renderToolSurface(piAuthoredPrompt(), inputs());
 
       expect(result.indexOf("Available tools:")).toBeGreaterThan(
         result.indexOf("Current working directory: /repo"),
@@ -150,7 +150,7 @@ describe("renderToolSurface", () => {
     });
 
     it("ends the prompt with the block", () => {
-      const result = renderToolSurface(piPrompt(), inputs());
+      const result = renderToolSurface(piAuthoredPrompt(), inputs());
 
       expect(
         result.endsWith("- Show file paths clearly when working with files"),
@@ -161,7 +161,7 @@ describe("renderToolSurface", () => {
   describe("the Available tools section", () => {
     it("lists the allowed tools with Pi's own snippets", () => {
       const result = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({ allowedTools: ["read", "grep"] }),
       );
 
@@ -176,7 +176,7 @@ describe("renderToolSurface", () => {
 
     it("omits a denied tool", () => {
       const result = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({ allowedTools: ["read"] }),
       );
 
@@ -185,7 +185,7 @@ describe("renderToolSurface", () => {
 
     it("omits a tool Pi supplied no snippet for", () => {
       const result = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({
           allowedTools: ["read", "ask_parent"],
           toolSnippets: { read: SNIPPETS.read },
@@ -198,7 +198,7 @@ describe("renderToolSurface", () => {
 
     it("writes no section when no allowed tool has a snippet", () => {
       const result = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({ allowedTools: ["ask_parent"], toolSnippets: {} }),
       );
 
@@ -210,7 +210,7 @@ describe("renderToolSurface", () => {
   describe("the Guidelines section", () => {
     it("carries each allowed tool's own guideline bullets", () => {
       const result = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({
           allowedTools: ["read", "edit"],
           guidelinesByTool: new Map([
@@ -233,7 +233,7 @@ describe("renderToolSurface", () => {
 
     it("omits a denied tool's guideline bullets", () => {
       const result = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({
           allowedTools: ["read"],
           guidelinesByTool: new Map([
@@ -251,7 +251,7 @@ describe("renderToolSurface", () => {
 
     it("carries a third-party tool's guidelines, which no built-in table names", () => {
       const result = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({
           allowedTools: ["colgrep"],
           toolSnippets: { colgrep: "Semantic code search" },
@@ -267,7 +267,7 @@ describe("renderToolSurface", () => {
     it("de-duplicates a bullet two tools both contribute", () => {
       const shared = "Do not use emojis";
       const result = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({
           allowedTools: ["read", "edit"],
           guidelinesByTool: new Map([
@@ -284,7 +284,7 @@ describe("renderToolSurface", () => {
     });
 
     it("always ends with Pi's two unconditional bullets", () => {
-      const result = renderToolSurface(piPrompt(), inputs());
+      const result = renderToolSurface(piAuthoredPrompt(), inputs());
 
       expect(result).toContain(
         [
@@ -297,7 +297,7 @@ describe("renderToolSurface", () => {
     describe("Pi's file-exploration bullet", () => {
       it("is written when bash is the only way to explore", () => {
         const result = renderToolSurface(
-          piPrompt(),
+          piAuthoredPrompt(),
           inputs({ allowedTools: ["bash"] }),
         );
 
@@ -308,7 +308,7 @@ describe("renderToolSurface", () => {
 
       it("is withheld when a dedicated exploration tool is allowed", () => {
         const result = renderToolSurface(
-          piPrompt(),
+          piAuthoredPrompt(),
           inputs({ allowedTools: ["bash", "grep"] }),
         );
 
@@ -319,7 +319,7 @@ describe("renderToolSurface", () => {
 
       it("is withheld when no shell is allowed", () => {
         const result = renderToolSurface(
-          piPrompt(),
+          piAuthoredPrompt(),
           inputs({ allowedTools: ["read"] }),
         );
 
@@ -328,7 +328,7 @@ describe("renderToolSurface", () => {
 
       it("names PowerShell when it is the only shell", () => {
         const result = renderToolSurface(
-          piPrompt(),
+          piAuthoredPrompt(),
           inputs({ allowedTools: ["powershell"] }),
         );
 
@@ -339,7 +339,7 @@ describe("renderToolSurface", () => {
 
       it("names both shells when both are allowed", () => {
         const result = renderToolSurface(
-          piPrompt(),
+          piAuthoredPrompt(),
           inputs({ allowedTools: ["bash", "powershell"] }),
         );
 
@@ -355,11 +355,11 @@ describe("renderToolSurface", () => {
       // What #180/#400 created and #890 restored: the child's leading bytes
       // match the parent's, so a prefix-reusing engine does not reprocess them.
       const parent = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({ allowedTools: ["read", "bash"] }),
       );
       const child = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({ allowedTools: ["read"] }),
       );
 
@@ -372,11 +372,11 @@ describe("renderToolSurface", () => {
 
     it("diverges only after the identity, where the two blocks differ", () => {
       const parent = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({ allowedTools: ["read", "bash"] }),
       );
       const child = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({ allowedTools: ["read"] }),
       );
 
@@ -388,13 +388,13 @@ describe("renderToolSurface", () => {
 
   describe("stability across turns", () => {
     it("renders the same block whether Pi's listing is full or already narrowed", () => {
-      const narrowed = piPrompt().replace(
+      const narrowed = piAuthoredPrompt().replace(
         "- bash: Execute bash commands (ls, grep, find, etc.)\n",
         "",
       );
 
       const fromFull = renderToolSurface(
-        piPrompt(),
+        piAuthoredPrompt(),
         inputs({ allowedTools: ["read"] }),
       );
       const fromNarrowed = renderToolSurface(
