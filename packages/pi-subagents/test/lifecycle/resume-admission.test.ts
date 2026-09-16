@@ -1,7 +1,8 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import { ConcurrencyLimiter } from "#src/lifecycle/concurrency-limiter";
 import { SubagentManager } from "#src/lifecycle/subagent-manager";
+import { NotificationManager } from "#src/observation/notification";
 import { createSessionFactory } from "#test/helpers/manager-stubs";
 import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
@@ -78,6 +79,51 @@ it("keeps interrupted execution and record-removal teardown owned until each act
   await Promise.resolve(); expect(disposed).not.toHaveBeenCalled();
   finishDispose(); await clearing; await disposal;
   expect(manager.pendingCleanup).toBe(false);
+});
+
+describe("resume outcome ownership", () => {
+  it.each([false, undefined])("allows pushed delivery after a foreground run with claimOutcome=%s", async (claimOutcome) => {
+    const { manager, stub, record, resumed } = await fixture();
+    record.markConsumed();
+    expect(record.claimed).toBe(true);
+    const sendMessage = vi.fn();
+    const notifications = new NotificationManager(sendMessage);
+    resumed.mockImplementation((agent) => notifications.sendCompletion(agent));
+    stub.resumeTurnLoop.mockResolvedValue("Background answer.");
+
+    try {
+      expect(manager.startResume(record.id, "continue", { claimOutcome })).toEqual({ kind: "started", record });
+      expect(record.claimed).toBe(false);
+      expect(record.consumed).toBe(false);
+      await record.promise;
+
+      expect(sendMessage).toHaveBeenCalledOnce();
+      // Notification envelope and metrics are owned elsewhere; this pins actual delivery of this run's result.
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: expect.stringContaining("Background answer.") }),
+        expect.anything(),
+      );
+    } finally {
+      notifications.dispose();
+    }
+  });
+
+  it.each([false, true])("preserves an active run's claim=%s when a duplicate admission is refused", async (claimOutcome) => {
+    const { manager, stub, record } = await fixture();
+    const completion = Promise.withResolvers<string>();
+    stub.resumeTurnLoop.mockReturnValue(completion.promise);
+    manager.startResume(record.id, "continue", { claimOutcome });
+
+    try {
+      expect(manager.startResume(record.id, "duplicate", { claimOutcome: !claimOutcome })).toEqual({
+        kind: "refused", reason: "still-running",
+      });
+      expect(record.claimed).toBe(claimOutcome);
+    } finally {
+      completion.resolve("Completed");
+      await record.promise;
+    }
+  });
 });
 
 it("parent teardown aborts and awaits a resumed turn, then refuses new admission", async () => {

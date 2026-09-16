@@ -106,7 +106,20 @@ describe("GetResultTool", () => {
 	it("includes promptSnippet", () => {
 		const tool = new GetResultTool(makeManager(), testRegistry);
 		expect(tool.toToolDefinition().promptSnippet).toBe(
-			"Check status and retrieve results from a background agent.",
+			"Retrieve full output, transcripts, or diagnostics when pushed subagent results are insufficient.",
+		);
+	});
+
+	it("reserves retrieval for inspection instead of routine completion polling", () => {
+		const def = new GetResultTool(makeManager(), testRegistry).toToolDefinition();
+		expect(def.promptGuidelines).toEqual([
+			"Use get_subagent_result only for full output beyond a pushed result, truncated-output recovery, transcript inspection (verbose: true), or diagnostics. Subagent results and questions are pushed automatically; do not poll or call get_subagent_result just to wait.",
+		]);
+		expect(def.description).toContain(
+			"Results and questions are pushed automatically; do not poll or call this tool just to wait.",
+		);
+		expect(def.parameters.properties.wait.description).toBe(
+			"If true, explicitly wait for the agent to complete before returning. Not needed for routine completion: results and questions are pushed automatically. Default: false.",
 		);
 	});
 

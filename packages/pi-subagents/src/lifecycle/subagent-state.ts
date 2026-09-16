@@ -81,6 +81,11 @@ export interface SubagentStateInit {
 }
 
 export class SubagentState {
+	// Monotonic within this record, unlike wall-clock timestamps: a delayed
+	// delivery from a previous run must never consume or announce its successor.
+	private _runVersion = 0;
+	get runVersion(): number { return this._runVersion; }
+
 	// Transition state — encapsulated behind getters, mutated only via transition methods
 	private _status: SubagentStatus;
 	get status(): SubagentStatus { return this._status; }
@@ -379,6 +384,7 @@ export class SubagentState {
 	 * since this runs synchronously before resume() returns.
 	 */
 	resetForResume(startedAt: number): void {
+		this._runVersion++;
 		this._status = "running";
 		this._startedAt = startedAt;
 		this._completedAt = undefined;

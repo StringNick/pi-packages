@@ -125,17 +125,20 @@ export class GetResultTool {
 			name: "get_subagent_result" as const,
 			label: "Get Agent Result",
 			promptSnippet:
-				"Check status and retrieve results from a background agent.",
+				"Retrieve full output, transcripts, or diagnostics when pushed subagent results are insufficient.",
+			promptGuidelines: [
+				"Use get_subagent_result only for full output beyond a pushed result, truncated-output recovery, transcript inspection (verbose: true), or diagnostics. Subagent results and questions are pushed automatically; do not poll or call get_subagent_result just to wait.",
+			],
 			description:
-				"Check status and retrieve results from a background agent. Use the agent ID returned by Agent with run_in_background. Token counters accumulate provider-reported usage from completed assistant messages; they do not estimate the currently streaming response.",
+				"Retrieve full output beyond a pushed result, recover truncated output, inspect a transcript (verbose: true), or diagnose a subagent problem. Results and questions are pushed automatically; do not poll or call this tool just to wait. Use the agent ID returned by subagent. Token counters accumulate provider-reported usage from completed assistant messages; they do not estimate the currently streaming response.",
 			parameters: Type.Object({
 				agent_id: Type.String({
-					description: "The agent ID to check.",
+					description: "The agent ID whose output or diagnostics you need.",
 				}),
 				wait: Type.Optional(
 					Type.Boolean({
 						description:
-							"If true, wait for the agent to complete before returning. Default: false.",
+							"If true, explicitly wait for the agent to complete before returning. Not needed for routine completion: results and questions are pushed automatically. Default: false.",
 					}),
 				),
 				verbose: Type.Optional(

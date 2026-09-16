@@ -256,12 +256,13 @@ describe("NotificationManager", () => {
     expect(args.sendMessage).toHaveBeenCalledOnce();
   });
 
-  it("every nudge carries the retrieval instruction", () => {
+  it("short results need no retrieval round trip", () => {
     const args = makeArgs();
     const system = makeManager(args);
     system.sendCompletion(baseRecord);
     const content = (args.sendMessage.mock.calls[0][0] as { content: string }).content;
-    expect(content).toContain("get_subagent_result");
+    expect(content).toContain("<result>Done.</result>");
+    expect(content).not.toContain("get_subagent_result");
   });
 
   it("surfaces a declared question as answerable in the nudge", () => {

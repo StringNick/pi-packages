@@ -448,8 +448,11 @@ export class SubagentManager {
     if (!agent) return { kind: "refused", reason: "unknown-agent" };
     const refusal = agent.resumeRefusal;
     if (refusal) return { kind: "refused", reason: refusal };
-    // resetForResume reserves the record synchronously before any await.
+    // A claim belongs to this resumed run, not to a previous foreground/pull
+    // carrier. Refused admissions above leave the current carrier untouched.
+    // resetForResume preserves this choice and reserves the record synchronously.
     if (options.claimOutcome) agent.claim();
+    else agent.release();
     void agent.resume(prompt, options.signal).catch((error) => { debugLog("resume lifecycle failed", error); });
     return { kind: "started", record: agent };
   }

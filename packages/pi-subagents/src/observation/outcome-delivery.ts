@@ -3,9 +3,9 @@
  *
  * A terminated child's outcome reaches the parent model through exactly one
  * carrier: the foreground tool return, the resume tool return, the
- * `get_subagent_result` report, or the completion nudge. Each carrier owns its
+ * `get_subagent_result` report, or the pushed completion. Each carrier owns its
  * own framing (spawn notes, XML envelope, report header) and its own
- * truncation — a nudge is a preview, a pull is the full text — but the body
+ * truncation — a push is bounded, a pull is the full text — but the body
  * they wrap is the same fact, so it is rendered here rather than four times.
  *
  * A workspace notice rides the same four carriers without being part of the
@@ -135,8 +135,8 @@ export function renderQuestionAffordance(
 		return (
 			"\n\nThis agent asked a question before it finished running, so it cannot be " +
 			`resumed yet:\n\n${quoted}\n\n` +
-			"Wait for it to settle \u2014 get_subagent_result with wait: true returns when it " +
-			"does \u2014 then answer it."
+			"Continue independent work or end this turn; its completion will arrive automatically. " +
+			"Answer after it settles, without polling."
 		);
 	}
 	if (refusal) {
@@ -148,7 +148,7 @@ export function renderQuestionAffordance(
 	}
 	return (
 		`\n\nThis agent is waiting on an answer:\n\n${quoted}\n\n` +
-		`Answer by calling subagent with resume: "${agentId}" and your answer as the prompt.`
+		`Answer by calling subagent with resume: "${agentId}", run_in_background: true, and your answer as the prompt.`
 	);
 }
 
@@ -229,7 +229,7 @@ export function renderRunUpdates(updates: readonly string[] | undefined): string
  */
 export function renderOutcomeBody(outcome: OutcomeBody): string {
 	if (outcome.status === "running")
-		return "Agent is still running. Use wait: true or check back later.";
+		return "Agent is still running. Its result will arrive automatically; continue independent work or end this turn without polling.";
 	if (outcome.status === "error") return `Error: ${outcome.error}`;
 	if (outcome.stoppedWhileQueued)
 		return "Agent was stopped while queued and never started. No work was performed.";

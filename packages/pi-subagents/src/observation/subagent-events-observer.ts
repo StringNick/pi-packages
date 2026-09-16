@@ -80,6 +80,12 @@ export class SubagentEventsObserver implements SubagentManagerObserver {
 		this.persistAndNotify(record);
 	}
 
+	onSubagentExecutionSettled(record: Subagent): void {
+		// Completion callbacks run before trackExecution clears executionPending.
+		// Only now can a pushed question truthfully offer immediate resume.
+		this.notifications.sendCompletion(record);
+	}
+
 	/**
 	 * Persist the terminal record for cross-extension history reconstruction and
 	 * announce completion. Shared by every terminal-state handler (fresh and
@@ -90,7 +96,11 @@ export class SubagentEventsObserver implements SubagentManagerObserver {
 	 */
 	private persistAndNotify(record: Subagent): void {
 		this.persistRecord(record, true);
-		this.notifications.sendCompletion(record);
+		// Never-started stops need no live execution to settle. Otherwise the
+		// settlement event above carries the notification, not the status event.
+		if (!record.executionPending || record.stoppedWhileQueued) {
+			this.notifications.sendCompletion(record);
+		}
 	}
 
 	/** Append lifecycle metadata to the owning parent's canonical Pi JSONL only. */

@@ -93,11 +93,15 @@ export default function (pi: ExtensionAPI) {
     changed,
   );
 
-  // Gate nudge delivery on the parent's agent run. agent_settled fires exactly
-  // once per run (from a finally block, so it also covers error and abort),
-  // whereas agent_end fires once per run segment — retries, auto-compaction and
-  // followUp continuations each emit one.
+  // Re-check pull ownership after this step's tools, before Pi drains steering.
+  // Do not steer into a failed/aborted step; let agent_settled handle that path.
   pi.on("agent_start", () => notifications.onParentAgentStart());
+  pi.on("turn_end", (event) => {
+    if (event.message.role === "assistant" &&
+        (event.message.stopReason === "error" || event.message.stopReason === "aborted")) return;
+    notifications.onParentTurnEnd();
+  });
+  pi.on("message_end", (event) => notifications.onParentMessageEnd(event.message));
   pi.on("agent_settled", () => notifications.onParentAgentSettled());
 
   // Settings: owns all three in-memory values and handles load/save/emit.

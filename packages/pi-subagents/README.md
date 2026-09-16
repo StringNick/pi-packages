@@ -107,6 +107,9 @@ Background agent completion notifications render as styled boxes:
 ```
 
 The LLM receives structured `<task-notification>` XML for parsing, while the user sees the themed visual.
+The notification carries up to 12,000 characters of the result, with an explicit truncation notice and the canonical Pi JSONL transcript path when available.
+It is a usable result, not an instruction to poll: continue independent work, or end the current turn without claiming the overall task is finished.
+An idle parent is woken automatically; a busy parent receives results, questions and updates at the next safe step boundary after its tools return.
 
 ## Tools
 
@@ -128,6 +131,7 @@ Launch a sub-agent.
 
 For `resume`, only the existing agent ID and `prompt` are needed.
 The native session retains its type, description, model, and execution settings; new spawn options do not reconfigure it.
+Add `run_in_background: true` to resume without blocking; omitted or false waits for that resumed run as before.
 Unknown types on a new launch fall back to `general-purpose` with a note.
 
 Qualified model references preserve provider identity.
@@ -139,6 +143,7 @@ An agent file can withhold one with [`locked`](./docs/configuration.md#locking-f
 ### `get_subagent_result`
 
 Check status and retrieve results from a background agent.
+Use this for truncated output, explicit status checks or diagnostics, not routine polling or mandatory collection after every notification.
 
 | Parameter  | Type    | Required | Description                   |
 | ---------- | ------- | -------- | ----------------------------- |
@@ -153,6 +158,7 @@ Context usage comes from the latest native session statistics and can be unavail
 The result renders as a compact three-line summary — status, stats, description, and a one-line preview.
 Press `Ctrl+O` to expand it to the full report, bounded so a long result cannot fill the terminal; the expanded view names the transcript path when it withholds anything.
 The complete report, including the conversation `verbose` requests, always reaches the model regardless of what the terminal shows.
+After the live session is released, its retained final result remains retrievable and the reported Pi JSONL path provides the complete persisted transcript for chunked file reads.
 
 The owning parent's canonical Pi JSONL carries `subagents:record` lifecycle metadata for history readers.
 Each admitted run or resume first appends a lightweight running marker; terminal completion, error, stop, or abort appends the final status.

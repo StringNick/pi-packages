@@ -156,6 +156,7 @@ export class Subagent {
 	// mutation methods below delegate to it one line.
 	private readonly state: SubagentState;
 	get status(): SubagentStatus { return this.state.status; }
+	get runVersion(): number { return this.state.runVersion; }
 	get result(): string | undefined { return this.state.result; }
 	get error(): string | undefined { return this.state.error; }
 	get stoppedWhileQueued(): boolean { return this.state.stoppedWhileQueued; }

@@ -2,7 +2,7 @@ import { vi } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type { Subagent } from "#src/lifecycle/subagent";
-import type { ResumeRefusalReason } from "#src/lifecycle/subagent-manager";
+import type { ResumeAdmission, ResumeRefusalReason } from "#src/lifecycle/subagent-manager";
 import {
 	type AgentToolManager,
 	type AgentToolRuntime,
@@ -55,6 +55,10 @@ export function createToolDeps(overrides: Partial<AgentToolFixture> = {}): Agent
 		manager: {
 			spawn: vi.fn().mockReturnValue("agent-1"),
 			spawnAndWait: vi.fn().mockResolvedValue(createTestSubagent()),
+			startResume: vi.fn((): ResumeAdmission => ({
+				kind: "started",
+				record: createTestSubagent({ status: "running", result: undefined }),
+			})),
 			resume: vi.fn().mockResolvedValue({ kind: "resumed", record: createTestSubagent() }),
 			getRecord: vi.fn().mockReturnValue(createTestSubagent()),
 		},

@@ -74,7 +74,7 @@ describe("renderQuestionAffordance", () => {
 		it("names the exact resume call that answers the question", () => {
 			expect(renderQuestionAffordance("b15f500f-314b-49b", "Which config?", undefined)).toBe(
 				"\n\nThis agent is waiting on an answer:\n\n  Which config?\n\n" +
-					'Answer by calling subagent with resume: "b15f500f-314b-49b" and your answer as the prompt.',
+					'Answer by calling subagent with resume: "b15f500f-314b-49b", run_in_background: true, and your answer as the prompt.',
 			);
 		});
 
@@ -133,12 +133,12 @@ describe("renderQuestionAffordance", () => {
 	});
 
 	describe("when the child has not finished running", () => {
-		it("says the question cannot be answered yet and points at the waiting pull", () => {
+		it("says the question cannot be answered yet and waits for automatic delivery", () => {
 			expect(renderQuestionAffordance("agent-7", "Which config?", "still-running")).toBe(
 				"\n\nThis agent asked a question before it finished running, so it cannot be " +
 					"resumed yet:\n\n  Which config?\n\n" +
-					"Wait for it to settle \u2014 get_subagent_result with wait: true returns when it " +
-					"does \u2014 then answer it.",
+					"Continue independent work or end this turn; its completion will arrive automatically. " +
+					"Answer after it settles, without polling.",
 			);
 		});
 
@@ -180,9 +180,9 @@ describe("renderWorkspaceNotice", () => {
 });
 
 describe("renderOutcomeBody", () => {
-	it("points a running agent at the wait option instead of reporting an outcome", () => {
+	it("points a running agent at automatic delivery instead of polling", () => {
 		expect(renderOutcomeBody(makeOutcome({ status: "running" }))).toBe(
-			"Agent is still running. Use wait: true or check back later.",
+			"Agent is still running. Its result will arrive automatically; continue independent work or end this turn without polling.",
 		);
 	});
 
@@ -214,7 +214,7 @@ describe("renderOutcomeBody", () => {
 
 	it("prefers the running note over a result a running agent has already accumulated", () => {
 		expect(renderOutcomeBody(makeOutcome({ status: "running", result: "partial" }))).toBe(
-			"Agent is still running. Use wait: true or check back later.",
+			"Agent is still running. Its result will arrive automatically; continue independent work or end this turn without polling.",
 		);
 	});
 

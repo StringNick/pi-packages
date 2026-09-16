@@ -6,6 +6,7 @@ import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type {
 	AgentSpawnConfig,
+	ResumeAdmission,
 	ResumeCallOptions,
 	ResumeOutcome,
 	ResumeRefusalReason,
@@ -17,7 +18,7 @@ import {
 } from "#src/observation/outcome-delivery";
 import { spawnBackground } from "#src/tools/background-spawner";
 import { runForeground } from "#src/tools/foreground-runner";
-import { buildAgentGuidelines, buildDetails, buildTypeListText, textResult } from "#src/tools/helpers";
+import { BACKGROUND_ACK_GUIDANCE, buildAgentGuidelines, buildDetails, buildTypeListText, textResult } from "#src/tools/helpers";
 import { renderAgentResult } from "#src/tools/result-renderer";
 import { resolveSessionModelOverride } from "#src/tools/session-override";
 import { type ModelInfo, resolveSpawnConfig } from "#src/tools/spawn-config";
@@ -25,7 +26,7 @@ import type { ParentSessionInfo, Subagent } from "#src/types";
 import { type AgentDetails, getDisplayName, type Theme } from "#src/ui/display";
 import { GLYPHS } from "#src/ui/glyphs";
 
-const NEW_AGENT_EXAMPLE = '{"subagent_type":"general-purpose","description":"Investigate the reported issue","prompt":"Investigate the reported issue and summarize findings."}';
+const NEW_AGENT_EXAMPLE = '{"subagent_type":"general-purpose","description":"Investigate the reported issue","prompt":"Investigate the reported issue and summarize findings.","run_in_background":true}';
 
 // ---- Deps interfaces ----
 
@@ -33,6 +34,7 @@ const NEW_AGENT_EXAMPLE = '{"subagent_type":"general-purpose","description":"Inv
 export interface AgentToolManager {
 	spawn: (snapshot: ParentSnapshot, type: string, prompt: string, opts: AgentSpawnConfig) => string;
 	spawnAndWait: (snapshot: ParentSnapshot, type: string, prompt: string, opts: Omit<AgentSpawnConfig, "background">) => Promise<Subagent>;
+	startResume: (id: string, prompt: string, options: ResumeCallOptions) => ResumeAdmission;
 	resume: (id: string, prompt: string, options: ResumeCallOptions) => Promise<ResumeOutcome>;
 	getRecord: (id: string) => Subagent | undefined;
 }
@@ -80,6 +82,9 @@ export class AgentTool {
 		// Resume uses the retained native session and its original identity. New
 		// agent defaults and session model overrides cannot change that session.
 		if (params.resume) {
+			if (params.run_in_background === true) {
+				return this.resumeInBackground(params.resume as string, params.prompt as string, signal);
+			}
 			return this.resumeExisting(params.resume as string, params.prompt as string, signal);
 		}
 		const invalidFields = ["subagent_type", "description"].filter((field) => {
@@ -141,6 +146,36 @@ export class AgentTool {
 		);
 	}
 
+	private resumeInBackground(id: string, prompt: string, signal: AbortSignal | undefined) {
+		signal?.throwIfAborted();
+		// Like a background spawn, admitted work outlives this tool call's signal.
+		// The native manager owns execution and completion delivery; this is only an ACK.
+		const admission = this.manager.startResume(id, prompt, { claimOutcome: false });
+		if (admission.kind === "refused") {
+			return textResult(resumeRefusalMessage(admission.reason, id));
+		}
+		const record = admission.record;
+		const displayName = getDisplayName(record.type, this.registry);
+		const details: AgentDetails = {
+			displayName,
+			subagentType: record.type,
+			description: record.description,
+			toolUses: 0,
+			tokens: "",
+			durationMs: 0,
+			status: "background",
+			agentId: record.id,
+		};
+		return textResult(
+			"Agent resume accepted in background.\n" +
+				`Agent ID: ${record.id}\n` +
+				`Type: ${displayName}\n` +
+				`Description: ${record.description}\n\n` +
+				BACKGROUND_ACK_GUIDANCE,
+			details,
+		);
+	}
+
 	/**
 	 * Continue an existing agent's session with a new prompt, returning its
 	 * resumed outcome directly to the parent.
@@ -182,12 +217,13 @@ export class AgentTool {
 		const registry = this.registry;
 
 		const guidelines = [
-			"- For parallel work, use run_in_background: true on each agent. Foreground calls run sequentially — only one executes at a time.",
+			"- Prefer run_in_background: true for independent delegation, including resumes. Use foreground only when the result is needed before your next step.",
 			...this.agentGuidelines,
 			"- Provide clear, detailed prompts so the agent can work autonomously.",
 			"- Subagent results are returned as text — summarize them for the user.",
-			"- Use run_in_background for work you don't need immediately. You will be notified when it completes.",
-			"- Use resume with an agent ID and prompt to continue a previous agent's work, or answer its question. Type and description are retained; model and other spawn options do not change a resumed session.",
+			"- After background launch or resume, continue independent work or end your current turn. Ending the turn does not mean the delegated task is complete. Results and questions are pushed automatically; do not poll or reflexively wait.",
+			"- Use get_subagent_result only for full output beyond the pushed result, truncated-output recovery, transcript inspection (verbose: true), or diagnostics.",
+			"- Use resume with an agent ID and prompt to continue a previous agent's work, or answer its question. Type and description are retained; model, thinking, and other spawn configuration do not change a resumed session.",
 			"- Use steer_subagent to send mid-run messages to a running background agent.",
 			'- Use model to specify a different model (as "provider/modelId", or fuzzy e.g. "haiku", "sonnet").',
 			"- Use thinking to control extended thinking level.",
@@ -198,14 +234,19 @@ export class AgentTool {
 		return defineTool({
 			name: "subagent" as const,
 			label: "Subagent",
-			promptSnippet: "Create an agent with prompt, subagent_type, and description; continue an existing agent with resume and prompt.",
-			description: `Launch a new agent or continue an existing agent's work.
+			promptSnippet: "Delegate independent work in background; create with prompt, subagent_type, and description, or continue with resume and prompt.",
+			promptGuidelines: [
+				"Prefer subagent with run_in_background: true for independent delegation, including resumes; results and questions are pushed automatically. Use foreground only when the result is needed before your next step.",
+				"Do not use get_subagent_result to poll or reflexively wait for subagent work; reserve it for full output, truncated-output recovery, transcript inspection, or diagnostics.",
+			],
+			description: `Launch a new agent or continue an existing agent's work. Prefer background delegation for independent work.
 
 New agent: provide prompt, subagent_type, and description as non-empty strings. Omit resume.
 Example: ${NEW_AGENT_EXAMPLE}
 
 Existing agent: provide resume (an agent ID returned earlier) and prompt. Type and description are retained.
-Example: {"resume":"<agent ID returned earlier>","prompt":"Continue the investigation and verify the fix."}
+Example: {"resume":"<agent ID returned earlier>","prompt":"Continue the investigation and verify the fix.","run_in_background":true}
+On resume, run_in_background: true returns an admission acknowledgement, not an outcome; false or omitted waits for the resumed outcome.
 
 Each agent type has specific capabilities and tools available to it.
 
@@ -247,7 +288,7 @@ ${guidelines}
 				run_in_background: Type.Optional(
 					Type.Boolean({
 						description:
-							"Set to true to run in background. Returns agent ID immediately. You will be notified when it completes. Omit to use the agent's own default.",
+							"Prefer true for independent delegation, including resumes: return an agent ID immediately, with results and questions pushed automatically. False waits for the outcome. When omitted, new agents use their type's default; resumes stay foreground.",
 					}),
 				),
 				resume: Type.Optional(

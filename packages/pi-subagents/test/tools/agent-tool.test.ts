@@ -62,7 +62,29 @@ describe("AgentTool", () => {
 	it("includes promptSnippet", () => {
 		const def = makeTool(createToolDeps()).toToolDefinition();
 		expect(def.promptSnippet).toBe(
-			"Create an agent with prompt, subagent_type, and description; continue an existing agent with resume and prompt.",
+			"Delegate independent work in background; create with prompt, subagent_type, and description, or continue with resume and prompt.",
+		);
+	});
+
+	it("advertises async-first delegation without polling in prompt guidelines", () => {
+		const def = makeTool(createToolDeps()).toToolDefinition();
+		expect(def.promptGuidelines).toEqual([
+			"Prefer subagent with run_in_background: true for independent delegation, including resumes; results and questions are pushed automatically. Use foreground only when the result is needed before your next step.",
+			"Do not use get_subagent_result to poll or reflexively wait for subagent work; reserve it for full output, truncated-output recovery, transcript inspection, or diagnostics.",
+		]);
+	});
+
+	it("describes background resume and the unchanged foreground defaults", () => {
+		const def = makeTool(createToolDeps()).toToolDefinition();
+		expect(def.description).toContain(
+			'{"resume":"<agent ID returned earlier>","prompt":"Continue the investigation and verify the fix.","run_in_background":true}',
+		);
+		expect(def.description).toContain(
+			"On resume, run_in_background: true returns an admission acknowledgement, not an outcome; false or omitted waits for the resumed outcome.",
+		);
+		expect(def.description).toContain("continue independent work or end your current turn");
+		expect(def.parameters.properties.run_in_background.description).toBe(
+			"Prefer true for independent delegation, including resumes: return an agent ID immediately, with results and questions pushed automatically. False waits for the outcome. When omitted, new agents use their type's default; resumes stay foreground.",
 		);
 	});
 
@@ -141,7 +163,7 @@ describe("AgentTool — resume path", () => {
   it("provides a valid new-agent example and distinguishes resume in the error", async () => {
     const deps = createToolDeps();
     await expect(execute(deps, { prompt: "new task" })).rejects.toThrow(
-      'Example: {"subagent_type":"general-purpose","description":"Investigate the reported issue","prompt":"Investigate the reported issue and summarize findings."}',
+      'Example: {"subagent_type":"general-purpose","description":"Investigate the reported issue","prompt":"Investigate the reported issue and summarize findings.","run_in_background":true}',
     );
     await expect(execute(deps, { prompt: "new task" })).rejects.toThrow(
       "To continue an existing agent, provide resume (an agent ID returned earlier) and prompt.",

@@ -9,6 +9,10 @@ import {
 } from "#src/observation/outcome-delivery";
 import type { Subagent } from "#src/types";
 
+// A useful report, rather than a teaser requiring another model/tool round trip.
+// Full output remains on the retained record and in the canonical Pi transcript.
+const RESULT_MAX_CHARS = 12_000;
+
 /** Details attached to custom notification messages for visual rendering. */
 export interface NotificationDetails {
   id: string;
@@ -214,16 +218,13 @@ export interface WorkspaceNoticeDetails {
  * updates are two distinct facts and both survive.
  */
 type PendingAnnouncement =
-  | { kind: "completion"; record: Subagent }
-  | { kind: "update"; record: Subagent; message: string };
+  | { kind: "completion"; record: Subagent; runVersion: number }
+  | { kind: "update"; record: Subagent; runVersion: number; message: string };
 
 export class NotificationManager implements NotificationSystem {
-  // pi.sendMessage is fire-and-forget: while the parent's agent run is active,
-  // a followUp is handed to a queue the extension cannot recall, yet it is only
-  // delivered when the run drains that queue at turn end. A parent that pulls
-  // the result in between would receive it twice. So nudges that arrive mid-run
-  // are withheld here — where record.consumed is still consultable — and
-  // flushed once the run settles.
+  // Hold until all tools in the current step have returned, then re-check the
+  // pull carrier before handing anything to Pi's unrecallable steering queue.
+  // agent_settled is the fallback for abort/retry paths with no next step.
   // Ordered rather than record-keyed: a completion for an agent supersedes an
   // earlier one for that agent, but announcements from different agents are
   // distinct facts, and arrival order is the only order the parent can make
@@ -232,6 +233,10 @@ export class NotificationManager implements NotificationSystem {
   private parentRunActive = false;
   private disposed = false;
   private delivering = false;
+  private readonly handedOff = new WeakMap<Subagent, number>();
+  // Pi preserves details identity on live custom messages. Weak keys avoid
+  // retaining outcomes if Pi discards a queued message on cancellation.
+  private readonly deliveries = new WeakMap<object, { record: Subagent; runVersion: number }>();
 
   get pendingDelivery(): boolean { return this.pending.length > 0 || this.delivering; }
 
@@ -253,16 +258,13 @@ export class NotificationManager implements NotificationSystem {
     // at the parent's request, so unlike the consumption check below it cannot
     // race the turn.
     if (record.claimed) return;
-    // Consumption is domain state on the record; the nudge is a pure
-    // announcement. Skip if the parent already pulled the result (enqueue-time
-    // guard); emitIndividualNudge re-reads record.consumed when the nudge is
-    // actually emitted, which is what makes the flush a fresh re-check.
+    // A pull may have collected the result since this completion was queued.
     if (record.consumed) return;
     if (this.parentRunActive) {
       this.withholdCompletion(record);
       return;
     }
-    this.emitIndividualNudge(record);
+    this.emitCompletion(record);
   }
 
   /**
@@ -271,7 +273,7 @@ export class NotificationManager implements NotificationSystem {
    * fact told again, not a later one.
    */
   private withholdCompletion(record: Subagent): void {
-    const entry: PendingAnnouncement = { kind: "completion", record };
+    const entry: PendingAnnouncement = { kind: "completion", record, runVersion: record.runVersion };
     const existing = this.pending.findIndex(
       (queued) => queued.kind === "completion" && queued.record.id === record.id,
     );
@@ -293,7 +295,7 @@ export class NotificationManager implements NotificationSystem {
     if (this.disposed) return;
     if (!this.canAnnounceUpdate(record)) return;
     if (this.parentRunActive) {
-      this.pending.push({ kind: "update", record, message });
+      this.pending.push({ kind: "update", record, runVersion: record.runVersion, message });
       this.onWorkloadChanged();
       return;
     }
@@ -346,24 +348,45 @@ export class NotificationManager implements NotificationSystem {
     );
   }
 
-  /** The parent's agent run became active; nudges are withheld until it settles. */
+  /** The parent's agent run became active; delivery waits for a safe boundary. */
   onParentAgentStart(): void {
     this.parentRunActive = true;
   }
 
-  /**
-   * The parent's agent run settled. Flush the nudges withheld during it, each
-   * re-checking consumption, so a result the parent pulled mid-run is dropped
-   * rather than announced a second time.
-   */
+  /** All tools in this step returned; Pi can steer before the next model call. */
+  onParentTurnEnd(): void {
+    if (this.parentRunActive) this.flushPending();
+  }
+
+  /** Fallback after the entire run, including retries and error/abort paths. */
   onParentAgentSettled(): void {
     this.parentRunActive = false;
+    this.flushPending();
+  }
+
+  /**
+   * Pi accepted the result into the parent's conversation. Enqueueing is not
+   * delivery; an interrupted queue must not start the consumed-retention clock.
+   * This is a transport acknowledgement, not proof the model acted on it.
+   */
+  onParentMessageEnd(message: { role: string; customType?: string; details?: unknown }): void {
+    if (this.disposed || message.role !== "custom" || message.customType !== "subagent-notification") return;
+    if (!message.details || typeof message.details !== "object") return;
+    const delivery = this.deliveries.get(message.details);
+    if (!delivery) return;
+    this.deliveries.delete(message.details);
+    if (delivery.record.runVersion === delivery.runVersion) delivery.record.markConsumed();
+  }
+
+  private flushPending(): void {
+    if (this.disposed) return;
     this.delivering = true;
     const withheld = this.pending.splice(0);
     for (const entry of withheld) {
+      if (entry.record.runVersion !== entry.runVersion) continue;
       try {
         if (entry.kind === "update") this.emitUpdate(entry.record, entry.message);
-        else this.emitIndividualNudge(entry.record);
+        else this.emitCompletion(entry.record);
       } catch (err) {
         debugLog("notification render", err);
       }
@@ -396,44 +419,54 @@ export class NotificationManager implements NotificationSystem {
         display: true,
         details,
       },
-      { deliverAs: "followUp", triggerTurn: true },
+      { deliverAs: this.parentRunActive ? "steer" : "followUp", triggerTurn: true },
     );
   }
 
-  private emitIndividualNudge(record: Subagent): void {
+  private emitCompletion(record: Subagent): void {
     if (record.claimed) return;
     if (record.consumed) return;
+    if (this.handedOff.get(record) === record.runVersion) return;
 
-    const notification = formatTaskNotification(record, 500);
+    const notification = formatTaskNotification(record, RESULT_MAX_CHARS);
     // A never-started agent has no transcript and nothing to collect.
     const pointerLines = record.stoppedWhileQueued ? "" : this.buildPointerLines(record);
 
-    this.sendMessage(
-      {
-        customType: "subagent-notification",
-        content: notification + pointerLines,
-        display: true,
-        details: buildNotificationDetails(record, 500),
-      },
-      { deliverAs: "followUp", triggerTurn: true },
-    );
+    const details = buildNotificationDetails(record, 500);
+    this.deliveries.set(details, { record, runVersion: record.runVersion });
+    this.handedOff.set(record, record.runVersion);
+    try {
+      this.sendMessage(
+        {
+          customType: "subagent-notification",
+          content: notification + pointerLines,
+          display: true,
+          details,
+        },
+        { deliverAs: this.parentRunActive ? "steer" : "followUp", triggerTurn: true },
+      );
+    } catch (error) {
+      this.deliveries.delete(details);
+      this.handedOff.delete(record);
+      throw error;
+    }
   }
 
   /**
-   * The trailing pointer lines: where the transcript lives, and how to collect
-   * the result. The nudge only announces; the parent must pull to collect (and
-   * consume).
+   * Full transcript access is optional: the delivered report is already usable.
    */
   private buildPointerLines(record: Subagent): string {
     const outputFile = record.outputFile;
-    const transcriptLine = outputFile ? `\nFull transcript available at: ${outputFile}` : "";
+    const transcriptLine = outputFile
+      ? `\nFull Pi JSONL transcript available at: ${outputFile}\nRead it in chunks if you need the complete messages and tool calls.`
+      : "";
     return (
       // What the child flagged along the way leads — for a run nothing else
       // collected, this nudge is the carrier those updates ride. Then where the
       // work went, so the parent reads it before the pointers.
       renderRunUpdates(record.runUpdates) +
       renderWorkspaceNotice(record.workspaceNotice) +
-      `${transcriptLine}\nCall get_subagent_result("${record.id}") to collect the full result.` +
+      transcriptLine +
       renderQuestionAffordance(record.id, record.pendingQuestion, record.resumeRefusal)
     );
   }

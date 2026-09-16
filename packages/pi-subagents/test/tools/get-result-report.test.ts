@@ -67,7 +67,7 @@ describe("renderStatsParts", () => {
 describe("renderReportBody", () => {
 	it("shows a still-running note for running status", () => {
 		const body = renderReportBody(makeReport({ status: "running", result: undefined }));
-		expect(body).toBe("Agent is still running. Use wait: true or check back later.");
+		expect(body).toBe("Agent is still running. Its result will arrive automatically; continue independent work or end this turn without polling.");
 	});
 
 	it("shows the error message for error status", () => {

@@ -161,9 +161,10 @@ Missing, blank, or invalid type/description fields fail the tool call before an 
 Unknown types fall back to `general-purpose` and report that fallback.
 To continue an existing agent, supply only `resume` and `prompt`; the retained session keeps its original type, description, model, and execution settings.
 New spawn options do not reconfigure a resumed session.
+The delivery option `run_in_background: true` returns immediately for a resume, with the next result or question delivered automatically; omitted or false retains the awaited resume behavior.
 
 ```json
-{"resume":"<agent ID returned earlier>","prompt":"Continue the investigation and verify the fix."}
+{"resume":"<agent ID returned earlier>","prompt":"Continue the investigation and verify the fix.","run_in_background":true}
 ```
 
 A `subagent` tool parameter wins over the agent file's value for `model`, `thinking`, `max_turns`, `inherit_context`, and `run_in_background`; the agent file supplies whichever of those the caller left unset.

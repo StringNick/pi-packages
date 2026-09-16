@@ -68,6 +68,22 @@ describe("spawnBackground", () => {
     expect(result.content[0].text).toContain("my task");
   });
 
+  it("returns an acknowledgement with pushed delivery and independent-work guidance", () => {
+    const { manager } = createToolDeps();
+    const result = spawnBackground(manager, makeParams());
+
+    expect(result.content[0].text).toBe(
+      "Agent started in background.\n" +
+      "Agent ID: agent-1\n" +
+      "Type: General-purpose\n" +
+      "Description: bg task\n\n" +
+      "Continue independent work, or end your current turn if nothing else needs doing. Ending the turn does not mean the delegated task is complete.\n" +
+      "Results and questions will be pushed automatically; do not poll or call get_subagent_result just to wait.\n" +
+      "Use get_subagent_result only for full output beyond the pushed result, truncated-output recovery, a transcript (verbose: true), or diagnostics. Use steer_subagent for mid-run messages.\n" +
+      "Do not duplicate this agent's work.",
+    );
+  });
+
   it("mentions 'queued' in result when record status is queued", () => {
     const deps = createToolDeps({
       manager: {

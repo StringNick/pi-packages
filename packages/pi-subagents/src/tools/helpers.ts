@@ -2,6 +2,13 @@ import type { AgentConfigLookup } from "#src/config/agent-types";
 import { getLifetimeTotal, type LifetimeUsage } from "#src/lifecycle/usage";
 import { type AgentDetails, formatTokens } from "#src/ui/display";
 
+/** Next steps shared by background launch and resume acknowledgements. */
+export const BACKGROUND_ACK_GUIDANCE =
+  "Continue independent work, or end your current turn if nothing else needs doing. Ending the turn does not mean the delegated task is complete.\n" +
+  "Results and questions will be pushed automatically; do not poll or call get_subagent_result just to wait.\n" +
+  "Use get_subagent_result only for full output beyond the pushed result, truncated-output recovery, a transcript (verbose: true), or diagnostics. Use steer_subagent for mid-run messages.\n" +
+  "Do not duplicate this agent's work.";
+
 /** Build AgentDetails from a base + record-specific fields. */
 export function buildDetails(
   base: Pick<AgentDetails, "displayName" | "description" | "subagentType" | "modelName" | "tags">,

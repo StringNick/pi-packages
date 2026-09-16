@@ -60,6 +60,7 @@ vi.mock("#src/lifecycle/create-subagent-session", async () => {
 
 import subagentsExtension from "#src/index";
 import { createSubagentSession } from "#src/lifecycle/create-subagent-session";
+import { NotificationManager } from "#src/observation/notification";
 import { getSubagentsService } from "#src/service/service";
 import { registerSubagentHost, requireSubagentHosts } from "#src/service/host";
 import { createMockSession, createSubagentSessionStub, toSubagentSession } from "./helpers/mock-session";
@@ -295,6 +296,33 @@ describe("composition root: message renderers", () => {
       "subagent-update",
       "subagent-workspace-notice",
     ]);
+  });
+});
+
+describe("composition root: push delivery boundaries", () => {
+  it("flushes successful steps, leaves abort/error to settlement, and acknowledges delivered messages", async () => {
+    const boundary = vi.spyOn(NotificationManager.prototype, "onParentTurnEnd");
+    const settled = vi.spyOn(NotificationManager.prototype, "onParentAgentSettled");
+    const delivered = vi.spyOn(NotificationManager.prototype, "onParentMessageEnd");
+    try {
+      const { pi, fire } = makePi();
+      subagentsExtension(pi);
+      await fire("agent_start");
+      await fire("turn_end", { message: { role: "assistant", stopReason: "toolUse" } });
+      expect(boundary).toHaveBeenCalledTimes(1);
+      await fire("turn_end", { message: { role: "assistant", stopReason: "aborted" } });
+      await fire("turn_end", { message: { role: "assistant", stopReason: "error" } });
+      expect(boundary).toHaveBeenCalledTimes(1);
+      const message = { role: "custom", customType: "subagent-notification", details: {} };
+      await fire("message_end", { message });
+      expect(delivered).toHaveBeenCalledWith(message);
+      await fire("agent_settled");
+      expect(settled).toHaveBeenCalledTimes(1);
+    } finally {
+      boundary.mockRestore();
+      settled.mockRestore();
+      delivered.mockRestore();
+    }
   });
 });
 
