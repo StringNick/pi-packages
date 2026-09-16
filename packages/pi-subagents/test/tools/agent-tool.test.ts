@@ -62,7 +62,7 @@ describe("AgentTool", () => {
 	it("includes promptSnippet", () => {
 		const def = makeTool(createToolDeps()).toToolDefinition();
 		expect(def.promptSnippet).toBe(
-			"Launch a specialized agent for complex, multi-step tasks.",
+			"Create an agent with prompt, subagent_type, and description; continue an existing agent with resume and prompt.",
 		);
 	});
 
@@ -121,11 +121,31 @@ describe("AgentTool — resume path", () => {
     expect(deps.runtime.buildSnapshot).not.toHaveBeenCalled();
   });
 
-  it("requires a type and description when creating a fresh agent", async () => {
+  it.each([
+    [{ prompt: "new task" }, "subagent_type, description"],
+    [{ prompt: "new task", description: "Inspect session startup" }, "subagent_type"],
+    [{ prompt: "new task", subagent_type: "Explore" }, "description"],
+    [{ prompt: "new task", subagent_type: " ", description: "" }, "subagent_type, description"],
+    [{ prompt: "new task", subagent_type: null, description: 42 }, "subagent_type, description"],
+  ])("rejects invalid new-agent identity before any work: %j", async (params, fields) => {
     const deps = createToolDeps();
-    const result = await execute(deps, { prompt: "new task" });
-    expect(result.content[0].text).toContain("subagent_type");
+    await expect(execute(deps, params)).rejects.toThrow(
+      `Agent was not started. Missing, blank, or invalid required fields: ${fields}.`,
+    );
     expect(deps.manager.spawnAndWait).not.toHaveBeenCalled();
+    expect(deps.manager.spawn).not.toHaveBeenCalled();
+    expect(deps.manager.resume).not.toHaveBeenCalled();
+    expect(deps.runtime.buildSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("provides a valid new-agent example and distinguishes resume in the error", async () => {
+    const deps = createToolDeps();
+    await expect(execute(deps, { prompt: "new task" })).rejects.toThrow(
+      'Example: {"subagent_type":"general-purpose","description":"Investigate the reported issue","prompt":"Investigate the reported issue and summarize findings."}',
+    );
+    await expect(execute(deps, { prompt: "new task" })).rejects.toThrow(
+      "To continue an existing agent, provide resume (an agent ID returned earlier) and prompt.",
+    );
   });
 
 	describe("refused", () => {

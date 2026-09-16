@@ -25,6 +25,10 @@ export class CompositeSubagentObserver implements SubagentManagerObserver {
     this.dispatch((o) => o.onSubagentStarted(record), "onSubagentStarted");
   }
 
+  onSubagentSessionCreated(record: Subagent): void {
+    this.dispatch((o) => o.onSubagentSessionCreated?.(record), "onSubagentSessionCreated");
+  }
+
   onSubagentCreated(record: Subagent): void {
     this.dispatch((o) => o.onSubagentCreated(record), "onSubagentCreated");
   }

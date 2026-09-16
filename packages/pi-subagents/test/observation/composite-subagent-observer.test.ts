@@ -185,3 +185,14 @@ describe("CompositeSubagentObserver", () => {
 		});
 	});
 });
+
+it("forwards session readiness while tolerating observers that do not consume it", () => {
+	const ready = vi.fn();
+	const composite = new CompositeSubagentObserver([
+		makeDelegate(),
+		{ ...makeDelegate(), onSubagentSessionCreated: ready },
+	]);
+	const record = createTestSubagent({ id: "ready-child" });
+	composite.onSubagentSessionCreated(record);
+	expect(ready).toHaveBeenCalledExactlyOnceWith(record);
+});

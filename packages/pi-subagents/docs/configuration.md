@@ -150,10 +150,21 @@ Qualified model references keep the named provider, including during fuzzy match
 Catalog availability means credentials are configured; the provider may still reject a model for the current account.
 Invalid explicit tool or session overrides return an error rather than switching providers.
 
-For a new agent, `prompt`, `subagent_type`, and `description` are required.
+For a new agent, `prompt`, `subagent_type`, and `description` are required non-empty strings; omit `resume`.
+Although the schema leaves type and description optional to support resume calls, a new-agent call cannot omit them.
+Missing, blank, or invalid type/description fields fail the tool call before an agent starts, with the affected fields and a corrected example.
+
+```json
+{"subagent_type":"general-purpose","description":"Investigate the reported issue","prompt":"Investigate the reported issue and summarize findings."}
+```
+
 Unknown types fall back to `general-purpose` and report that fallback.
 To continue an existing agent, supply only `resume` and `prompt`; the retained session keeps its original type, description, model, and execution settings.
 New spawn options do not reconfigure a resumed session.
+
+```json
+{"resume":"<agent ID returned earlier>","prompt":"Continue the investigation and verify the fix."}
+```
 
 A `subagent` tool parameter wins over the agent file's value for `model`, `thinking`, `max_turns`, `inherit_context`, and `run_in_background`; the agent file supplies whichever of those the caller left unset.
 

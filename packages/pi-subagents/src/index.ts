@@ -218,6 +218,7 @@ export default function (pi: ExtensionAPI) {
   // Consumers: const { getSubagentsService } = await import("@gotgenes/pi-subagents");
   observer.add({
     onSubagentStarted: changed, onSubagentCreated: changed, onSubagentCompleted: changed,
+    onSubagentSessionCreated: changed,
     onSubagentResuming: changed, onSubagentResumed: changed, onSubagentCompacted: changed,
     onSubagentExecutionSettled: changed, onSubagentCleanupChanged: changed,
   });

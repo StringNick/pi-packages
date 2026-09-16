@@ -25,6 +25,8 @@ import type { ParentSessionInfo, Subagent } from "#src/types";
 import { type AgentDetails, getDisplayName, type Theme } from "#src/ui/display";
 import { GLYPHS } from "#src/ui/glyphs";
 
+const NEW_AGENT_EXAMPLE = '{"subagent_type":"general-purpose","description":"Investigate the reported issue","prompt":"Investigate the reported issue and summarize findings."}';
+
 // ---- Deps interfaces ----
 
 /** Narrow manager interface — only the methods the Agent tool calls. */
@@ -80,9 +82,18 @@ export class AgentTool {
 		if (params.resume) {
 			return this.resumeExisting(params.resume as string, params.prompt as string, signal);
 		}
-		if (typeof params.subagent_type !== "string" || !params.subagent_type.trim() ||
-			typeof params.description !== "string" || !params.description.trim()) {
-			return textResult("New agents require subagent_type and description. To continue an existing agent, provide resume and prompt.");
+		const invalidFields = ["subagent_type", "description"].filter((field) => {
+			const value = params[field];
+			return typeof value !== "string" || !value.trim();
+		});
+		if (invalidFields.length > 0) {
+			// Pi marks thrown tool errors as isError; a text result is a success.
+			throw new Error(
+				`Agent was not started. Missing, blank, or invalid required fields: ${invalidFields.join(", ")}. ` +
+				"For a new agent, provide prompt, subagent_type, and description as non-empty strings. " +
+				`Example: ${NEW_AGENT_EXAMPLE}\n` +
+				"To continue an existing agent, provide resume (an agent ID returned earlier) and prompt.",
+			);
 		}
 		this.settings.refresh?.();
 		// Reload custom agents so new .pi/agents/*.md files are picked up without restart
@@ -187,10 +198,16 @@ export class AgentTool {
 		return defineTool({
 			name: "subagent" as const,
 			label: "Subagent",
-			promptSnippet: "Launch a specialized agent for complex, multi-step tasks.",
-			description: `Launch a new agent to handle complex, multi-step tasks autonomously.
+			promptSnippet: "Create an agent with prompt, subagent_type, and description; continue an existing agent with resume and prompt.",
+			description: `Launch a new agent or continue an existing agent's work.
 
-The subagent tool launches specialized agents that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.
+New agent: provide prompt, subagent_type, and description as non-empty strings. Omit resume.
+Example: ${NEW_AGENT_EXAMPLE}
+
+Existing agent: provide resume (an agent ID returned earlier) and prompt. Type and description are retained.
+Example: {"resume":"<agent ID returned earlier>","prompt":"Continue the investigation and verify the fix."}
+
+Each agent type has specific capabilities and tools available to it.
 
 Available agent types:
 ${typeListText}
@@ -200,7 +217,7 @@ ${guidelines}
 `,
 			parameters: Type.Object({
 				prompt: Type.String({
-					description: "The task for the agent to perform.",
+					description: "Required for both new and resumed agents. The task or follow-up instruction; prompt alone cannot create an agent.",
 				}),
 				description: Type.Optional(Type.String({
 					description: "A short (3-5 word) description of the task (shown in UI). Required for new agents; omitted on resume.",

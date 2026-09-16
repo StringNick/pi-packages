@@ -66,6 +66,7 @@ function createManager(overrides?: {
         onSubagentResuming: overrides.observer.onSubagentResuming ?? (() => {}),
         onSubagentCompacted: overrides.observer.onSubagentCompacted ?? (() => {}),
         onSubagentCreated: overrides.observer.onSubagentCreated ?? (() => {}),
+        onSubagentSessionCreated: overrides.observer.onSubagentSessionCreated,
         onSubagentWorkspaceNotice: overrides.observer.onSubagentWorkspaceNotice,
       }
     : undefined;
@@ -1644,4 +1645,33 @@ describe("resolveRetentionWindow", () => {
       ).toEqual({ referenceAt: 9_000, windowMinutes: 720 });
     });
   });
+});
+
+it("announces the transcript pointer while the child is still running", async () => {
+  const { factory, stub } = createSessionFactory(
+    createMockSession(),
+    "/sessions/parent/tasks/child.jsonl",
+  );
+  const gate = Promise.withResolvers<void>();
+  stub.runTurnLoop.mockImplementation(async () => {
+    await gate.promise;
+    return { responseText: "done", aborted: false, steered: false };
+  });
+  const ready = vi.fn((agent: Subagent) => {
+    expect(agent.outputFile).toBe("/sessions/parent/tasks/child.jsonl");
+    expect(agent.status).toBe("running");
+  });
+  const { manager } = createManager({
+    createSubagentSession: factory,
+    observer: { onSubagentSessionCreated: ready },
+  });
+  try {
+    const id = spawnBg(manager);
+    await vi.waitFor(() => expect(ready).toHaveBeenCalledOnce());
+    expect(manager.getRecord(id)?.status).toBe("running");
+  } finally {
+    gate.resolve();
+    await manager.waitForAll();
+    await manager.dispose();
+  }
 });
