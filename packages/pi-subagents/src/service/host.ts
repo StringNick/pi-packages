@@ -23,6 +23,14 @@ export interface ChildSessionEvent extends ChildSessionIdentity {
 
 /** Trusted process-host inputs. The host owns credentials, resource trust and tool operations. */
 export interface SubagentHost {
+  /**
+   * Explicit user model selection for one agent type (canonical name), consulted
+   * at the subagent tool door before native invocation-config merge. The door
+   * injects it as the winning caller param, so native `locked:` restrictions
+   * still discard it with the usual lock note and unresolvable values still
+   * surface as errors. Absent or throwing → ordinary native precedence.
+   */
+  resolveSessionModelOverride?(agentName: string): string | undefined;
   /** Immutable host-admitted project-agent trust; hosted omission denies project agents. */
   readonly allowProjectAgents?: boolean;
   /** The admitted Pi profile for global agent definitions. */

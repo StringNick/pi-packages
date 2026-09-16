@@ -20,6 +20,7 @@ import { runForeground } from "#src/tools/foreground-runner";
 import { buildAgentGuidelines, buildDetails, buildTypeListText, textResult } from "#src/tools/helpers";
 import { renderAgentResult } from "#src/tools/result-renderer";
 import { type ModelInfo, resolveSpawnConfig, type SpawnPresentation } from "#src/tools/spawn-config";
+import { resolveSessionModelOverride } from "#src/tools/session-override";
 import type { ParentSessionInfo, Subagent } from "#src/types";
 import { type AgentDetails, getDisplayName, type Theme } from "#src/ui/display";
 import { GLYPHS } from "#src/ui/glyphs";
@@ -43,6 +44,7 @@ export interface AgentToolRuntime {
 
 /** Narrow settings accessor — only the fields the Agent tool reads. */
 export type AgentToolSettings = {
+	refresh?(): void;
 	readonly defaultMaxTurns: number | undefined;
 	readonly maxConcurrent: number;
 };
@@ -73,12 +75,24 @@ export class AgentTool {
 		onUpdate: ((update: AgentToolResult<AgentDetails>) => void) | undefined,
 		_ctx: ExtensionContext,
 	) {
+		this.settings.refresh?.();
 		// Reload custom agents so new .pi/agents/*.md files are picked up without restart
 		this.registry.reload();
 
+		// Explicit user session selection wins over the assistant's tool-call
+		// param: inject it as the caller value before native merge, so `locked:`
+		// agents still discard it with the usual lock note (see session-override).
+		const sessionModel = resolveSessionModelOverride(
+			this.runtime.getSessionInfo().parentSessionId,
+			params.subagent_type,
+			this.registry,
+		);
+		const effectiveParams =
+			sessionModel !== undefined ? { ...params, model: sessionModel } : params;
+
 		// ---- Config resolution (pure) ----
 		const config = resolveSpawnConfig(
-			params,
+			effectiveParams,
 			this.registry,
 			this.runtime.getModelInfo(),
 			this.settings,
@@ -194,7 +208,7 @@ ${guidelines}
 				model: Type.Optional(
 					Type.String({
 						description:
-							'Optional model override. Accepts "provider/modelId" or fuzzy name (e.g. "haiku", "sonnet"). Omit to use the agent type\'s default. An agent that locks this field keeps its own model and says so in the result.',
+							'Optional model override. Accepts "provider/modelId" or fuzzy name (e.g. "haiku", "sonnet"). Omit to use the agent type\'s default. A user session selection for this agent type wins over this parameter. An agent that locks this field keeps its own model and says so in the result.',
 					}),
 				),
 				thinking: Type.Optional(

@@ -2,7 +2,7 @@
  * custom-agents.ts — Load user-defined agents from project (.pi/agents/) and global ($PI_CODING_AGENT_DIR/agents/, default ~/.pi/agent/agents/) locations.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { BUILTIN_TOOL_NAMES } from "#src/config/agent-types";
@@ -20,18 +20,34 @@ import type { AgentConfig } from "#src/types";
  * Project-level agents override global ones with the same name.
  * Any name is allowed — names matching defaults (e.g. "Explore") override them.
  */
-export function loadCustomAgents(cwd: string, options: { agentDir?: string; includeProject?: boolean } = {}): Map<string, AgentConfig> {
+export interface LoadCustomAgentsOptions {
+  agentDir?: string;
+  includeProject?: boolean;
+  /**
+   * Skip agent files larger than this many bytes. Unset means unbounded
+   * (historical behavior). Hosts pass a bound so one oversized file cannot
+   * break discovery; skipped files are reported via `onFileError`.
+   */
+  maxFileBytes?: number;
+  /**
+   * Called for files skipped by `maxFileBytes` or with unparseable
+   * frontmatter instead of throwing. Unset preserves throwing on parse errors.
+   */
+  onFileError?: (file: string, error: unknown) => void;
+}
+
+export function loadCustomAgents(cwd: string, options: LoadCustomAgentsOptions = {}): Map<string, AgentConfig> {
   const globalDir = join(options.agentDir ?? getAgentDir(), "agents");
   const projectDir = join(cwd, ".pi", "agents");
 
   const agents = new Map<string, AgentConfig>();
-  loadFromDir(globalDir, agents, "global");   // lower priority
-  if (options.includeProject !== false) loadFromDir(projectDir, agents, "project");  // higher priority (overwrites)
+  loadFromDir(globalDir, agents, "global", options);   // lower priority
+  if (options.includeProject !== false) loadFromDir(projectDir, agents, "project", options);  // higher priority (overwrites)
   return agents;
 }
 
 /** Load agent configs from a directory into the map. */
-function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source: "project" | "global"): void {
+function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source: "project" | "global", options: LoadCustomAgentsOptions): void {
   if (!existsSync(dir)) return;
 
   let files: string[];
@@ -44,16 +60,43 @@ function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source: "pro
 
   for (const file of files) {
     const name = basename(file, ".md");
+    const path = join(dir, file);
+
+    if (options.maxFileBytes !== undefined) {
+      let size: number | undefined;
+      try {
+        size = statSync(path).size;
+      } catch (err) {
+        debugLog("statSync agent file", err);
+        continue;
+      }
+      if (size > options.maxFileBytes) {
+        const error = new Error(`Agent file ${file} exceeds the size limit and was skipped.`);
+        if (options.onFileError) options.onFileError(path, error);
+        else debugLog("agent file skipped", error);
+        continue;
+      }
+    }
 
     let content: string;
     try {
-      content = readFileSync(join(dir, file), "utf-8");
+      content = readFileSync(path, "utf-8");
     } catch (err) {
       debugLog("readFileSync agent file", err);
       continue;
     }
 
-    const { frontmatter: fm, body } = parseFrontmatter(content);
+    let fm: Record<string, unknown>;
+    let body: string;
+    try {
+      ({ frontmatter: fm, body } = parseFrontmatter<Record<string, unknown>>(content));
+    } catch (err) {
+      if (options.onFileError) {
+        options.onFileError(path, err);
+        continue;
+      }
+      throw err;
+    }
 
     agents.set(name, {
       name,

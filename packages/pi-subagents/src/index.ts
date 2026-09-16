@@ -196,6 +196,10 @@ export default function (pi: ExtensionAPI) {
       host?.assertActive();
       host?.host.assertAdmission?.();
       registry.reload();
+      // Admission is the choke point every spawn door shares: pick up runtime
+      // tuning changed on disk (Settings UI, hand edits) for future launches.
+      // Silent refresh emits nothing and never disturbs running children.
+      settings.refresh();
     },
     createSubagentSession: (params) => createSubagentSession(params, subagentSessionDeps),
     baseCwd: () => {

@@ -35,6 +35,24 @@ async function execute(
 }
 
 describe("AgentTool", () => {
+	it.each([true, false])("refreshes defaults before resolving a background=%s launch", async (background) => {
+		for (const next of [12, undefined]) {
+			const deps = createToolDeps();
+			let turns: number | undefined = 7;
+			deps.settings = {
+				get defaultMaxTurns() { return turns; },
+				maxConcurrent: 4,
+				refresh() { turns = next; },
+			};
+			await execute(deps, {
+				prompt: "test", description: "test", subagent_type: "general-purpose",
+				run_in_background: background,
+			});
+			const spawn = background ? deps.manager.spawn : deps.manager.spawnAndWait;
+			expect(spawn).toHaveBeenCalledWith(expect.anything(), "general-purpose", "test",
+				expect.objectContaining({ maxTurns: next }));
+		}
+	});
 	it("returns tool definition with correct name and label", () => {
 		const def = makeTool(createToolDeps()).toToolDefinition();
 		expect(def.name).toBe("subagent");

@@ -28,4 +28,11 @@ export default [
     external,
     plugins: [plugin],
   },
+  // ./agents entry: agent-definition metadata seam for hosts (Settings UIs)
+  {
+    input: "src/agents.ts",
+    output: { file: "dist/agents.d.ts", format: "es" },
+    external,
+    plugins: [plugin],
+  },
 ];

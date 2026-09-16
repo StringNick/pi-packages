@@ -14,6 +14,10 @@
     "./settings": {
       "types": "./dist/settings.d.ts",
       "default": "./src/layered-settings.ts"
+    },
+    "./agents": {
+      "types": "./dist/agents.d.ts",
+      "default": "./src/agents.ts"
     }
   },
   "files": [

@@ -73,12 +73,31 @@ export interface SettingsSnapshot {
 /** Emit callback — a subset of `pi.events.emit` to keep helpers testable. */
 export type SettingsEmit = (event: string, payload: unknown) => void;
 
-const DEFAULT_MAX_CONCURRENT = 4;
-const DEFAULT_GRACE_TURNS = 5;
-const DEFAULT_CONSUMED_RETENTION_MINUTES = 10;
-const DEFAULT_UNCONSUMED_RETENTION_MINUTES = 720;
-const DEFAULT_ABORT_ALL_ON_INTERRUPT = true;
-const DEFAULT_MID_RUN_UPDATES = true;
+/**
+ * Effective defaults hosts apply under absent keys. Exported (with the limits
+ * below) so host projections cannot drift from native layering.
+ */
+export const SUBAGENTS_SETTING_DEFAULTS = {
+  maxConcurrent: 4,
+  graceTurns: 5,
+  consumedSessionRetentionMinutes: 10,
+  unconsumedSessionRetentionMinutes: 720,
+  abortAllOnInterrupt: true,
+  midRunUpdates: true,
+} as const;
+/** Inclusive acceptance bounds hosts reuse for save validation. */
+export const SUBAGENTS_SETTING_LIMITS = {
+  maxConcurrent: 1024,
+  defaultMaxTurns: 10_000,
+  graceTurns: 1_000,
+  retentionMinutes: 20_160,
+} as const;
+const DEFAULT_MAX_CONCURRENT = SUBAGENTS_SETTING_DEFAULTS.maxConcurrent;
+const DEFAULT_GRACE_TURNS = SUBAGENTS_SETTING_DEFAULTS.graceTurns;
+const DEFAULT_CONSUMED_RETENTION_MINUTES = SUBAGENTS_SETTING_DEFAULTS.consumedSessionRetentionMinutes;
+const DEFAULT_UNCONSUMED_RETENTION_MINUTES = SUBAGENTS_SETTING_DEFAULTS.unconsumedSessionRetentionMinutes;
+const DEFAULT_ABORT_ALL_ON_INTERRUPT = SUBAGENTS_SETTING_DEFAULTS.abortAllOnInterrupt;
+const DEFAULT_MID_RUN_UPDATES = SUBAGENTS_SETTING_DEFAULTS.midRunUpdates;
 
 /**
  * Owns all three in-memory settings values and their load/save/persist cycle.
@@ -113,6 +132,12 @@ export class SettingsManager {
   bindContext(cwd: string, agentDir: string, includeProject: boolean, assertContext: () => void): void {
     assertContext();
     this.cwd = cwd; this.agentDir = agentDir; this.includeProject = includeProject; this.assertContext = assertContext;
+    this.resetToDefaults();
+    this.load();
+    this.onMaxConcurrentChanged?.();
+  }
+
+  private resetToDefaults(): void {
     this._defaultMaxTurns = undefined;
     this._graceTurns = DEFAULT_GRACE_TURNS;
     this._maxConcurrent = DEFAULT_MAX_CONCURRENT;
@@ -122,8 +147,6 @@ export class SettingsManager {
     this._midRunUpdates = DEFAULT_MID_RUN_UPDATES;
     this._excludedExtensionPackages = [];
     this._promptInheritance = {};
-    this.load();
-    this.onMaxConcurrentChanged?.();
   }
 
   assertProjectWriteAllowed(): void {
@@ -218,6 +241,12 @@ export class SettingsManager {
   load(): SubagentsSettings {
     this.assertContext?.();
     const settings = loadSettings(this.agentDir, this.cwd, this.includeProject);
+    this.applyLoaded(settings);
+    this.emit("subagents:settings_loaded", { settings });
+    return settings;
+  }
+
+  private applyLoaded(settings: SubagentsSettings): void {
     if (typeof settings.maxConcurrent === "number") this.maxConcurrent = settings.maxConcurrent;
     if (typeof settings.defaultMaxTurns === "number") this.defaultMaxTurns = settings.defaultMaxTurns;
     if (typeof settings.graceTurns === "number") this.graceTurns = settings.graceTurns;
@@ -231,8 +260,19 @@ export class SettingsManager {
     // Assigned unconditionally: removing the key from disk must clear the value.
     this._excludedExtensionPackages = [...(settings.excludedExtensionPackages ?? [])];
     this._promptInheritance = { ...settings.promptInheritance };
-    this.emit("subagents:settings_loaded", { settings });
-    return settings;
+  }
+
+  /**
+   * Re-read layered files and apply them without emitting lifecycle events.
+   * Hosts invoke this at admission boundaries so future launches observe
+   * runtime tuning changed on disk (Settings UI, hand edits) without
+   * restarting or disturbing running children.
+   */
+  refresh(): void {
+    this.assertContext?.();
+    // Reset first so keys removed from disk stop shadowing defaults.
+    this.resetToDefaults();
+    this.applyLoaded(loadSettings(this.agentDir, this.cwd, this.includeProject));
   }
 
   /**
@@ -340,11 +380,11 @@ export class SettingsManager {
 // Sanity ceilings — prevent hand-edited configs from asking for values that
 // make no operational sense (e.g. 1e6 concurrent subagents). Permissive enough
 // that any realistic power-user setting passes through.
-const MAX_CONCURRENT_CEILING = 1024;
-const MAX_TURNS_CEILING = 10_000;
-const GRACE_TURNS_CEILING = 1_000;
+const MAX_CONCURRENT_CEILING = SUBAGENTS_SETTING_LIMITS.maxConcurrent;
+const MAX_TURNS_CEILING = SUBAGENTS_SETTING_LIMITS.defaultMaxTurns;
+const GRACE_TURNS_CEILING = SUBAGENTS_SETTING_LIMITS.graceTurns;
 // Retention windows: 1 minute floor, two-week ceiling (60 * 24 * 14).
-const RETENTION_MINUTES_CEILING = 20_160;
+const RETENTION_MINUTES_CEILING = SUBAGENTS_SETTING_LIMITS.retentionMinutes;
 
 /** Clamp a retention window to [1, RETENTION_MINUTES_CEILING] minutes. */
 function clampRetentionMinutes(n: number): number {
@@ -357,6 +397,15 @@ function isRetentionMinutes(n: unknown): n is number {
 }
 
 /** Drop fields that don't match the expected shape. Silent — garbage becomes absent. */
+/**
+ * Public projection of the native layer sanitizer: drops absent/mistyped or
+ * out-of-range keys so hosts compute the same effective values Pi launches use.
+ * Hosts must reject invalid saves explicitly instead of relying on silent drops.
+ */
+export function sanitizeSubagentsSettings(raw: unknown): SubagentsSettings {
+  return sanitize(raw);
+}
+
 function sanitize(raw: unknown): SubagentsSettings {
   if (!raw || typeof raw !== "object") return {};
   const r = raw as Record<string, unknown>;
