@@ -1,13 +1,13 @@
 /**
- * session-override.ts — Explicit user model selection at the tool door.
+ * session-override.ts — Explicit user model and reasoning selection at the tool door.
  *
- * A host (Zrow) may register a per-parent `resolveSessionModelOverride` hook
- * carrying the user's session-scoped model choice for one agent type. The
- * subagent tool consults it before native invocation-config merge and injects
+ * A host may register per-parent model and thinking override hooks carrying
+ * the user's session-scoped choices for one agent type. The subagent tool
+ * consults them before native invocation-config merge and injects
  * the answer as the winning caller param, which yields the enforced priority
  * without a second authority:
  *
- *   native `locked:` restriction > user session selection > tool-call `model`
+ *   native `locked:` restriction > user session selection > tool-call
  *   param > agent definition > parent inherit
  *
  * A locked agent discards the override through the ordinary lock path (with
@@ -24,24 +24,41 @@ export function resolveSessionModelOverride(
   rawType: unknown,
   registry: AgentTypeRegistry,
 ): string | undefined {
-  let host: ReturnType<typeof getSubagentHost>;
+  return resolveSessionOverride(parentSessionId, rawType, registry, "resolveSessionModelOverride");
+}
+
+/**
+ * Explicit user reasoning selection for one agent type. Same door, same
+ * precedence as the model hook: injected as the winning caller param, so
+ * native `locked:` restrictions still discard it and unrecognized values
+ * still surface through the ordinary spawn-config error path.
+ */
+export function resolveSessionThinkingOverride(
+  parentSessionId: string,
+  rawType: unknown,
+  registry: AgentTypeRegistry,
+): string | undefined {
+  return resolveSessionOverride(parentSessionId, rawType, registry, "resolveSessionThinkingOverride");
+}
+
+function resolveSessionOverride(
+  parentSessionId: string,
+  rawType: unknown,
+  registry: AgentTypeRegistry,
+  hook: "resolveSessionModelOverride" | "resolveSessionThinkingOverride",
+): string | undefined {
   try {
-    host = getSubagentHost(parentSessionId);
+    const host = getSubagentHost(parentSessionId)?.host;
+    if (!host) return undefined;
+    const canonical =
+      typeof rawType === "string"
+        ? (registry.resolveType(rawType) ?? "general-purpose")
+        : "general-purpose";
+    // Keep the receiver for stateful hosts. Native spawn-config, not this
+    // optional lookup, owns validation of a nonblank explicit selection.
+    const value = host[hook]?.(canonical)?.trim();
+    return value ? value : undefined;
   } catch {
     return undefined;
   }
-  const resolve = host?.host.resolveSessionModelOverride;
-  if (!resolve) return undefined;
-  const canonical =
-    typeof rawType === "string"
-      ? (registry.resolveType(rawType) ?? "general-purpose")
-      : "general-purpose";
-  let value: string | undefined;
-  try {
-    value = resolve(canonical);
-  } catch {
-    return undefined;
-  }
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
 }

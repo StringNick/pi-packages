@@ -11,7 +11,8 @@
  * - invocation-config helpers — caller/agent-file precedence and `locked:`;
  * - thinking vocabulary — the exact levels spawn doors accept;
  * - `resolveSpawnConfig` — the pure launch-door resolution (precedence proof);
- * - `resolveSessionModelOverride` — explicit user selection at the tool door.
+ * - `resolveSessionModelOverride` / `resolveSessionThinkingOverride` — explicit
+ *   user selections at the tool door.
  *
  * Runtime tuning (`subagents.json`) stays behind the `/subagents:settings`
  * door and the `SettingsManager`; this seam carries no settings ownership.
@@ -42,7 +43,10 @@ export {
   type SubagentsSettings,
   sanitizeSubagentsSettings,
 } from "#src/settings";
-export { resolveSessionModelOverride } from "#src/tools/session-override";
+export {
+  resolveSessionModelOverride,
+  resolveSessionThinkingOverride,
+} from "#src/tools/session-override";
 export {
   type ModelInfo,
   type ResolvedSpawnConfig,

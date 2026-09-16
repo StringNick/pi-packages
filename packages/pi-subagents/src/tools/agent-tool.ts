@@ -20,7 +20,7 @@ import { spawnBackground } from "#src/tools/background-spawner";
 import { runForeground } from "#src/tools/foreground-runner";
 import { BACKGROUND_ACK_GUIDANCE, buildAgentGuidelines, buildDetails, buildTypeListText, textResult } from "#src/tools/helpers";
 import { renderAgentResult } from "#src/tools/result-renderer";
-import { resolveSessionModelOverride } from "#src/tools/session-override";
+import { resolveSessionModelOverride, resolveSessionThinkingOverride } from "#src/tools/session-override";
 import { type ModelInfo, resolveSpawnConfig } from "#src/tools/spawn-config";
 import type { ParentSessionInfo, Subagent } from "#src/types";
 import { type AgentDetails, getDisplayName, type Theme } from "#src/ui/display";
@@ -112,8 +112,19 @@ export class AgentTool {
 			params.subagent_type,
 			this.registry,
 		);
+		const sessionThinking = resolveSessionThinkingOverride(
+			this.runtime.getSessionInfo().parentSessionId,
+			params.subagent_type,
+			this.registry,
+		);
 		const effectiveParams =
-			sessionModel !== undefined ? { ...params, model: sessionModel } : params;
+			sessionModel !== undefined || sessionThinking !== undefined
+				? {
+						...params,
+						...(sessionModel !== undefined ? { model: sessionModel } : null),
+						...(sessionThinking !== undefined ? { thinking: sessionThinking } : null),
+					}
+				: params;
 
 		// ---- Config resolution (pure) ----
 		const config = resolveSpawnConfig(
@@ -275,7 +286,7 @@ ${guidelines}
 				thinking: Type.Optional(
 					Type.String({
 						description:
-							"Thinking level: off, minimal, low, medium, high, xhigh, max. Overrides the agent's default unless the agent locks this field.",
+							"Thinking level: off, minimal, low, medium, high, xhigh, max. A user session selection for this agent type wins over this parameter. Overrides the agent's default unless the agent locks this field.",
 					}),
 				),
 				max_turns: Type.Optional(

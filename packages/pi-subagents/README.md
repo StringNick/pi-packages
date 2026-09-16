@@ -310,7 +310,7 @@ When `@gotgenes/pi-permission-system` is not installed, the lifecycle events hav
 
 ## For Extension Authors
 
-This package exposes two public subpath exports for companion extensions to import from the published tarball.
+This package exposes public subpath exports for companion extensions and embedding hosts to import from the published tarball.
 
 ### `@gotgenes/pi-subagents` — cross-extension service contract
 
@@ -387,6 +387,29 @@ Pass `claimOutcome: true` to declare that your extension is delivering it, which
 
 Pass `signal` to cancel the resumed turn loop.
 `abort(id)` also cancels a resumed run through its current native abort controller.
+
+### `@gotgenes/pi-subagents/host` — session selections
+
+An embedding host can supply an explicit user model and reasoning selection per parent session and agent type through its existing `SubagentHost` registration:
+
+```typescript
+import { registerSubagentHost } from "@gotgenes/pi-subagents/host";
+
+const release = registerSubagentHost(parentSessionId, {
+  createSessionFactory, // The host's existing trusted child factory.
+  admitSession,        // The host's existing required-interceptor check.
+  resolveSessionModelOverride: (name) => selectedModels.get(name),
+  resolveSessionThinkingOverride: (name) => selectedThinkingLevels.get(name),
+});
+// Call release() when the owning parent AgentSession is disposed.
+```
+
+Both hooks are synchronous and receive the canonical agent name; an unknown requested type resolves to `general-purpose` first.
+Methods retain the registered host as their `this` receiver.
+Values are trimmed; an absent hook, `undefined`, blank string, or throwing hook leaves the corresponding native precedence unchanged.
+Nonblank strings become explicit caller parameters: the session choice wins over the assistant's tool-call parameter, while native validation and `locked:` restrictions remain authoritative.
+An invalid nonblank thinking level reports a validation error instead of silently reverting to the caller's value.
+These hooks apply only to new `subagent` tool launches, not resumes or `SubagentsService.spawn` calls.
 
 ### `@gotgenes/pi-subagents/settings` — layered config loader
 
