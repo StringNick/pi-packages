@@ -127,7 +127,7 @@ export class GetResultTool {
 			promptSnippet:
 				"Check status and retrieve results from a background agent.",
 			description:
-				"Check status and retrieve results from a background agent. Use the agent ID returned by Agent with run_in_background.",
+				"Check status and retrieve results from a background agent. Use the agent ID returned by Agent with run_in_background. Token counters accumulate provider-reported usage from completed assistant messages; they do not estimate the currently streaming response.",
 			parameters: Type.Object({
 				agent_id: Type.String({
 					description: "The agent ID to check.",

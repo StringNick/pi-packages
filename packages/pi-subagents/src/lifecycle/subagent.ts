@@ -192,6 +192,7 @@ export class Subagent {
 	// (transcript pointer) survives and the resume path can tell "released" from
 	// "never had a session."
 	private _releasedOutputFile?: string;
+	private _releasedChildSessionId?: string;
 	private _sessionReleased = false;
 	/** True once releaseSession() has freed a live session (distinct from never having had one). */
 	get sessionReleased(): boolean { return this._sessionReleased; }
@@ -215,6 +216,11 @@ export class Subagent {
 	 */
 	get outputFile(): string | undefined {
 		return this.subagentSession?.outputFile ?? this._releasedOutputFile;
+	}
+
+	/** Canonical Pi child identity, retained together with its transcript path after release. */
+	get childSessionId(): string | undefined {
+		return this.subagentSession?.sessionId ?? this._releasedChildSessionId;
 	}
 
 	/** The tool call ID that spawned this background agent, if any. */
@@ -714,6 +720,7 @@ export class Subagent {
 		if (!session) return;
 		this.disposeHeldWorkspace();
 		this._releasedOutputFile = session.outputFile;
+		this._releasedChildSessionId = session.sessionId;
 		this.subagentSession = undefined;
 		this._sessionReleased = true;
 		await disposeQuietly(session, "child session release");

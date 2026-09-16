@@ -17,35 +17,36 @@
  * door and the `SettingsManager`; this seam carries no settings ownership.
  */
 
-export { AgentTypeRegistry, type AgentConfigLookup } from "#src/config/agent-types";
-export { loadCustomAgents, type LoadCustomAgentsOptions } from "#src/config/custom-agents";
+export { type AgentConfigLookup, AgentTypeRegistry } from "#src/config/agent-types";
+export { type LoadCustomAgentsOptions, loadCustomAgents } from "#src/config/custom-agents";
 export { DEFAULT_AGENTS } from "#src/config/default-agents";
 export {
+  type AgentInvocationConfig,
   isLockableField,
   LOCKABLE_FIELDS,
-  resolveAgentInvocationConfig,
-  type AgentInvocationConfig,
   type LockableField,
   type LockDeclaration,
+  resolveAgentInvocationConfig,
 } from "#src/config/invocation-config";
 export {
   parseThinkingLevel,
+  type SubagentThinkingLevel,
   THINKING_LEVELS,
   thinkingLevelError,
-  type SubagentThinkingLevel,
 } from "#src/config/thinking-level";
+export { normalizeModelReference } from "#src/session/model-resolver";
 export {
-  resolveSpawnConfig,
-  type ModelInfo,
-  type ResolvedSpawnConfig,
-  type SpawnConfigError,
-} from "#src/tools/spawn-config";
-export { resolveSessionModelOverride } from "#src/tools/session-override";
-export {
-  sanitizeSubagentsSettings,
+  type SettingsSnapshot as SubagentsSettingsSnapshot,
   SUBAGENTS_SETTING_DEFAULTS,
   SUBAGENTS_SETTING_LIMITS,
-  type SettingsSnapshot as SubagentsSettingsSnapshot,
   type SubagentsSettings,
+  sanitizeSubagentsSettings,
 } from "#src/settings";
+export { resolveSessionModelOverride } from "#src/tools/session-override";
+export {
+  type ModelInfo,
+  type ResolvedSpawnConfig,
+  resolveSpawnConfig,
+  type SpawnConfigError,
+} from "#src/tools/spawn-config";
 export type { AgentConfig } from "#src/types";

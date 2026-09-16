@@ -136,16 +136,25 @@ All fields are optional — sensible defaults for everything.
 | `description`       | filename       | Agent description shown in tool listings                                                                                                                                                                                                      |
 | `display_name`      | —              | Display name for UI (e.g. widget, agent list)                                                                                                                                                                                                 |
 | `tools`             | all 7          | The agent's complete tool allowlist — built-in or extension-registered names. `none` for no tools. See [Tool selection](#tool-selection)                                                                                                      |
-| `model`             | inherit parent | Model — `provider/modelId` or fuzzy name (`"haiku"`, `"sonnet"`)                                                                                                                                                                              |
+| `model`             | inherit parent | Model — `provider/modelId` (legacy `provider:modelId` is accepted) or fuzzy name (`"haiku"`, `"sonnet"`)                                                                                                                                      |
 | `thinking`          | inherit        | off, minimal, low, medium, high, xhigh, max. An unrecognized value is dropped, and the agent inherits the parent's level                                                                                                                      |
 | `max_turns`         | unlimited      | Max agentic turns before graceful shutdown. `0` or omit for unlimited                                                                                                                                                                         |
 | `prompt_mode`       | `append`       | `replace`: parent prompt is the cacheable base; body is appended last with full control and no `<agent_instructions>` wrapper. `append`: parent prompt is the base; body is wrapped in `<agent_instructions>` (agent acts as a "parent twin") |
-| `inherit_context`   | `false`        | Fork parent conversation into agent                                                                                                                                                                                                           |
+| `inherit_context`   | `false`        | Copy parent conversation text; excludes tool calls, tool results, and images                                                                                                                                                                  |
 | `run_in_background` | `false`        | Run in background by default                                                                                                                                                                                                                  |
 | `enabled`           | `true`         | Set to `false` to disable an agent (useful for hiding a default agent per-project)                                                                                                                                                            |
 | `locked`            | —              | Fields a `subagent` tool caller may not override. `true` or a list of field names. See [Locking fields against callers](#locking-fields-against-callers)                                                                                      |
 
 The caller decides, and the agent file fills the gaps.
+Qualified model references keep the named provider, including during fuzzy matching.
+Catalog availability means credentials are configured; the provider may still reject a model for the current account.
+Invalid explicit tool or session overrides return an error rather than switching providers.
+
+For a new agent, `prompt`, `subagent_type`, and `description` are required.
+Unknown types fall back to `general-purpose` and report that fallback.
+To continue an existing agent, supply only `resume` and `prompt`; the retained session keeps its original type, description, model, and execution settings.
+New spawn options do not reconfigure a resumed session.
+
 A `subagent` tool parameter wins over the agent file's value for `model`, `thinking`, `max_turns`, `inherit_context`, and `run_in_background`; the agent file supplies whichever of those the caller left unset.
 
 ### Locking fields against callers

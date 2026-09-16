@@ -54,41 +54,55 @@ export function resolveInvocationModel(
 
 /**
  * Resolve a model string to a Model instance.
- * Tries exact match first ("provider/modelId"), then fuzzy match against all available models.
+ * Accepts provider/modelId and legacy provider:modelId, then fuzzy-matches
+ * within the named provider. Unqualified names search all available models.
  * Returns the Model on success, or an error message string on failure.
  */
 export function resolveModel(
   input: string,
   registry: ModelRegistry,
 ): Model<any> | string {
-  // Available models (those with auth configured)
+  // Availability means credentials are configured, not that the account's plan
+  // supports every model in the provider catalog.
   const all = registry.getAvailable?.() ?? registry.getAll();
-  const availableSet = new Set(all.map(m => `${m.provider}/${m.id}`.toLowerCase()));
-
-  // 1. Exact match: "provider/modelId" — only if available (has auth)
-  const slashIdx = input.indexOf("/");
-  if (slashIdx !== -1) {
-    const provider = input.slice(0, slashIdx);
-    const modelId = input.slice(slashIdx + 1);
-    if (availableSet.has(input.toLowerCase())) {
-      const found = registry.find(provider, modelId);
+  const normalized = normalizeModelReference(input);
+  if (normalized !== undefined) {
+    const slash = normalized.indexOf("/");
+    const provider = slash < 0 ? undefined : normalized.slice(0, slash).toLowerCase();
+    const query = slash < 0 ? normalized : normalized.slice(slash + 1);
+    // A qualified reference must never migrate to another provider, even when
+    // that provider exposes the requested name inside one of its model ids.
+    const candidates = provider === undefined
+      ? all
+      : all.filter(model => model.provider.toLowerCase() === provider);
+    const bestMatch = findBestFuzzyMatch(candidates, query.toLowerCase());
+    if (bestMatch) {
+      const found = registry.find(bestMatch.provider, bestMatch.id);
       if (found) return found;
     }
   }
 
-  // 2. Fuzzy match against available models
-  const bestMatch = findBestFuzzyMatch(all, input.toLowerCase());
-  if (bestMatch) {
-    const found = registry.find(bestMatch.provider, bestMatch.id);
-    if (found) return found;
-  }
-
-  // 3. No match — list available models
   const modelList = all
     .map(m => `  ${m.provider}/${m.id}`)
     .sort()
     .join("\n");
-  return `Model not found: "${input}".\n\nAvailable models:\n${modelList}`;
+  return `Model not found: "${input}".\n\nAvailable models:\n${modelList}\n\nCatalog availability does not guarantee access with the configured account.`;
+}
+
+/**
+ * Native model-reference syntax shared with host write paths. Legacy GUI values
+ * used provider:modelId; keep the whole model id (including / and :) intact.
+ * Unqualified fuzzy names remain supported. Undefined means malformed input.
+ */
+export function normalizeModelReference(input: string): string | undefined {
+  const value = input.trim();
+  if (!value || value.length > 256 || /[\x00-\x1f\x7f]/.test(input)) return undefined;
+  const separator = value.search(/[:/]/);
+  if (separator < 0) return value;
+  const provider = value.slice(0, separator);
+  const model = value.slice(separator + 1);
+  if (!provider || !model || /\s/.test(provider) || /\s/.test(model)) return undefined;
+  return `${provider}/${model}`;
 }
 
 /**

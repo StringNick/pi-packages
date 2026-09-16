@@ -19,8 +19,8 @@ import { spawnBackground } from "#src/tools/background-spawner";
 import { runForeground } from "#src/tools/foreground-runner";
 import { buildAgentGuidelines, buildDetails, buildTypeListText, textResult } from "#src/tools/helpers";
 import { renderAgentResult } from "#src/tools/result-renderer";
-import { type ModelInfo, resolveSpawnConfig, type SpawnPresentation } from "#src/tools/spawn-config";
 import { resolveSessionModelOverride } from "#src/tools/session-override";
+import { type ModelInfo, resolveSpawnConfig } from "#src/tools/spawn-config";
 import type { ParentSessionInfo, Subagent } from "#src/types";
 import { type AgentDetails, getDisplayName, type Theme } from "#src/ui/display";
 import { GLYPHS } from "#src/ui/glyphs";
@@ -75,6 +75,15 @@ export class AgentTool {
 		onUpdate: ((update: AgentToolResult<AgentDetails>) => void) | undefined,
 		_ctx: ExtensionContext,
 	) {
+		// Resume uses the retained native session and its original identity. New
+		// agent defaults and session model overrides cannot change that session.
+		if (params.resume) {
+			return this.resumeExisting(params.resume as string, params.prompt as string, signal);
+		}
+		if (typeof params.subagent_type !== "string" || !params.subagent_type.trim() ||
+			typeof params.description !== "string" || !params.description.trim()) {
+			return textResult("New agents require subagent_type and description. To continue an existing agent, provide resume and prompt.");
+		}
 		this.settings.refresh?.();
 		// Reload custom agents so new .pi/agents/*.md files are picked up without restart
 		this.registry.reload();
@@ -104,16 +113,6 @@ export class AgentTool {
 		const { parentSessionFile, parentSessionId } = this.runtime.getSessionInfo();
 		const parentSession: ParentSessionInfo = { parentSessionFile, parentSessionId, toolCallId };
 
-		// ---- Resume existing agent ----
-		if (params.resume) {
-			return this.resumeExisting(
-				params.resume as string,
-				params.prompt as string,
-				signal,
-				config.presentation.detailBase,
-			);
-		}
-
 		// ---- Background execution ----
 		if (config.execution.runInBackground) {
 			return spawnBackground(
@@ -139,7 +138,6 @@ export class AgentTool {
 		id: string,
 		prompt: string,
 		signal: AbortSignal | undefined,
-		detailBase: SpawnPresentation["detailBase"],
 	) {
 		// The manager owns whether a resume happens; this door owns only how the
 		// answer is worded. Resuming commits this call to delivering the outcome,
@@ -158,7 +156,11 @@ export class AgentTool {
 			`Agent ID: ${record.id}${renderStatusNote(record.status)}\n\n` +
 				renderOutcomeBody(record) +
 				renderOutcomeAddenda(record),
-			buildDetails(detailBase, record),
+			buildDetails({
+				displayName: getDisplayName(record.type, this.registry),
+				subagentType: record.type,
+				description: record.description,
+			}, record),
 		);
 	}
 
@@ -174,11 +176,12 @@ export class AgentTool {
 			"- Provide clear, detailed prompts so the agent can work autonomously.",
 			"- Subagent results are returned as text — summarize them for the user.",
 			"- Use run_in_background for work you don't need immediately. You will be notified when it completes.",
-			"- Use resume with an agent ID to continue a previous agent's work, or to answer an agent that ended its turn with a question.",
+			"- Use resume with an agent ID and prompt to continue a previous agent's work, or answer its question. Type and description are retained; model and other spawn options do not change a resumed session.",
 			"- Use steer_subagent to send mid-run messages to a running background agent.",
 			'- Use model to specify a different model (as "provider/modelId", or fuzzy e.g. "haiku", "sonnet").',
 			"- Use thinking to control extended thinking level.",
-			"- Use inherit_context if the agent needs the parent conversation history.",
+			"- Unknown agent types fall back to general-purpose, with a note in the result.",
+			"- Use inherit_context to copy parent conversation text; tool calls, tool results, and images are not copied.",
 		].join("\n");
 
 		return defineTool({
@@ -199,12 +202,12 @@ ${guidelines}
 				prompt: Type.String({
 					description: "The task for the agent to perform.",
 				}),
-				description: Type.String({
-					description: "A short (3-5 word) description of the task (shown in UI).",
-				}),
-				subagent_type: Type.String({
-					description: `The type of specialized agent to use. Available types: ${availableTypesText}. Custom agents from .pi/agents/<name>.md (project) or ${agentDir}/agents/<name>.md (global) are also available.`,
-				}),
+				description: Type.Optional(Type.String({
+					description: "A short (3-5 word) description of the task (shown in UI). Required for new agents; omitted on resume.",
+				})),
+				subagent_type: Type.Optional(Type.String({
+					description: `Required for new agents; omitted on resume, which keeps the original type. Unknown types fall back to general-purpose. Available types: ${availableTypesText}. Custom agents from .pi/agents/<name>.md (project) or ${agentDir}/agents/<name>.md (global) are also available.`,
+				})),
 				model: Type.Optional(
 					Type.String({
 						description:
@@ -232,13 +235,13 @@ ${guidelines}
 				),
 				resume: Type.Optional(
 					Type.String({
-						description: "Optional agent ID to resume from. Continues from previous context.",
+						description: "Optional agent ID to resume from. Requires only prompt; keeps its existing session, model, type, and description.",
 					}),
 				),
 				inherit_context: Type.Optional(
 					Type.Boolean({
 						description:
-							"If true, fork parent conversation into the agent. Omit to use the agent's own default, which is fresh context unless it declares otherwise.",
+							"If true, copy parent conversation text into the agent (no tool calls, tool results, or images). Omit to use the agent's own default, which is fresh context unless it declares otherwise.",
 					}),
 				),
 			}),

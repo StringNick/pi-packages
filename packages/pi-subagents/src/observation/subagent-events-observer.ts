@@ -34,6 +34,7 @@ export class SubagentEventsObserver implements SubagentManagerObserver {
 	}
 
 	onSubagentStarted(record: Subagent): void {
+		this.persistRecord(record, false);
 		// Emit started event when agent transitions to running (including from queue).
 		this.emit("subagents:started", {
 			id: record.id,
@@ -58,10 +59,12 @@ export class SubagentEventsObserver implements SubagentManagerObserver {
 	/**
 	 * A settled agent went back to running. Announced only, and on its own
 	 * channel: `subagents:started` reports the first run, and a consumer counting
-	 * it once per agent must not see it twice. Nothing is persisted — the session
-	 * entry records outcomes, and a run that has just begun is not one.
+	 * it once per agent must not see it twice. A lightweight running marker
+	 * supersedes the previous outcome in canonical history. After a crash a
+	 * reader must report that run as unverified, never replay the older success.
 	 */
 	onSubagentResuming(record: Subagent): void {
+		this.persistRecord(record, false);
 		this.emit("subagents:resuming", {
 			id: record.id,
 			type: record.type,
@@ -86,17 +89,29 @@ export class SubagentEventsObserver implements SubagentManagerObserver {
 	 * not owned here.
 	 */
 	private persistAndNotify(record: Subagent): void {
+		this.persistRecord(record, true);
+		this.notifications.sendCompletion(record);
+	}
+
+	/** Append lifecycle metadata to the owning parent's canonical Pi JSONL only. */
+	private persistRecord(record: Subagent, terminal: boolean): void {
 		this.appendEntry("subagents:record", {
 			id: record.id,
 			type: record.type,
 			description: record.description,
 			status: record.status,
-			result: record.result,
-			error: record.error,
 			startedAt: record.startedAt,
-			completedAt: record.completedAt,
+			isBackground: record.isBackground,
+			toolUses: record.toolUses,
+			turnCount: record.turnCount,
+			...(record.outputFile ? { outputFile: record.outputFile } : {}),
+			...(record.childSessionId ? { childSessionId: record.childSessionId } : {}),
+			...(terminal ? {
+				result: record.result,
+				error: record.error,
+				completedAt: record.completedAt,
+			} : {}),
 		});
-		this.notifications.sendCompletion(record);
 	}
 
 	/**

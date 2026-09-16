@@ -109,6 +109,25 @@ describe("AgentTool", () => {
 });
 
 describe("AgentTool — resume path", () => {
+  it("accepts only a resume id and prompt and keeps retained type and description", async () => {
+    const deps = createToolDeps();
+    mockResumeRecord(deps, { type: "Explore", description: "Original investigation", result: "Resumed." });
+    const def = makeTool(deps).toToolDefinition();
+    expect(def.parameters.required).not.toContain("subagent_type");
+    expect(def.parameters.required).not.toContain("description");
+    const result = await execute(deps, { resume: "agent-1", prompt: "continue", model: "unavailable/new-model" });
+    expect(result.content[0].text).toContain("Resumed.");
+    expect(result.details).toMatchObject({ subagentType: "Explore", description: "Original investigation" });
+    expect(deps.runtime.buildSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("requires a type and description when creating a fresh agent", async () => {
+    const deps = createToolDeps();
+    const result = await execute(deps, { prompt: "new task" });
+    expect(result.content[0].text).toContain("subagent_type");
+    expect(deps.manager.spawnAndWait).not.toHaveBeenCalled();
+  });
+
 	describe("refused", () => {
 		it("names an id no record answers to", async () => {
 			const deps = createToolDeps();

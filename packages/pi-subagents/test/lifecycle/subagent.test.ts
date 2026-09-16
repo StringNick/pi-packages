@@ -525,11 +525,12 @@ describe("Subagent — releaseSession", () => {
 		expect(record.isSessionReady()).toBe(false);
 	});
 
-	it("captures outputFile so the getter still resolves it after release", async () => {
+	it("retains canonical transcript path and child identity after session release", async () => {
 		const record = makeSubagent();
 		record.subagentSession = toSubagentSession(createSubagentSessionStub(createMockSession(), "/path/to/session.jsonl"));
 		await record.releaseSession();
 		expect(record.outputFile).toBe("/path/to/session.jsonl");
+		expect(record.childSessionId).toBe("child-session-test");
 	});
 
 	it("sets sessionReleased (default false)", async () => {
@@ -564,6 +565,7 @@ describe("Subagent — releaseSession", () => {
 		await record.releaseSession();
 		expect(stub.dispose).toHaveBeenCalledOnce();
 		expect(record.outputFile).toBe("/path/to/session.jsonl");
+		expect(record.childSessionId).toBe("child-session-test");
 	});
 
 	it("disposeSession after release is a no-op (session already cleared)", async () => {

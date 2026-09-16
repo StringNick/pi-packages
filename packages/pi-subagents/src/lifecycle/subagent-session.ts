@@ -92,6 +92,11 @@ export class SubagentSession {
     return this._session;
   }
 
+  /** Canonical child identity supplied by its SessionManager at creation. */
+  get sessionId(): string {
+    return this.meta.sessionId;
+  }
+
   get outputFile(): string | undefined {
     return this.meta.outputFile;
   }

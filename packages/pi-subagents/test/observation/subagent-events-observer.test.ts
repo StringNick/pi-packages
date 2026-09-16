@@ -22,6 +22,18 @@ function makeObserver(overrides?: Partial<{ notifications: NotificationSystem }>
 }
 
 describe("SubagentEventsObserver", () => {
+	it.each(["completed", "error", "stopped", "aborted"] as const)("persists child identity and transcript linkage for %s, including resumed outcomes", async (status) => {
+		const { observer, appendEntry } = makeObserver();
+		const record = createTestSubagent({ id: "agent-9", status, error: status === "error" ? "provider failed" : undefined, sessionReady: true, outputFile: "/sessions/child.jsonl", toolUses: 8, turnCount: 4, isBackground: false });
+		observer.onSubagentCompleted(record);
+		await record.releaseSession();
+		observer.onSubagentResumed(record);
+		for (const [, entry] of appendEntry.mock.calls) {
+			expect(entry).toMatchObject({ id: "agent-9", status, outputFile: "/sessions/child.jsonl", childSessionId: "child-session-test", toolUses: 8, turnCount: 4, isBackground: false });
+			if (status === "error") expect(entry).toHaveProperty("error", "provider failed");
+		}
+	});
+
 	describe("onSubagentStarted", () => {
 		it("emits subagents:started with id, type, description", () => {
 			const { observer, emit } = makeObserver();
@@ -36,10 +48,12 @@ describe("SubagentEventsObserver", () => {
 			});
 		});
 
-		it("does not call appendEntry or notifications", () => {
+		it("persists a lightweight running marker without a completion notification", () => {
 			const { observer, appendEntry, notifications } = makeObserver();
-			observer.onSubagentStarted(createTestSubagent());
-			expect(appendEntry).not.toHaveBeenCalled();
+			observer.onSubagentStarted(createTestSubagent({ status: "running" }));
+			expect(appendEntry).toHaveBeenCalledWith("subagents:record", expect.objectContaining({ status: "running" }));
+			expect(appendEntry.mock.calls[0]?.[1]).not.toHaveProperty("result");
+			expect(appendEntry.mock.calls[0]?.[1]).not.toHaveProperty("completedAt");
 			expect(notifications.sendCompletion).not.toHaveBeenCalled();
 		});
 	});
@@ -81,7 +95,7 @@ describe("SubagentEventsObserver", () => {
 			expect(emit).toHaveBeenCalledWith("subagents:failed", expect.anything());
 		});
 
-		it("calls appendEntry with subagents:record and the eight persisted fields", () => {
+		it("calls appendEntry with subagents:record and lifecycle metadata", () => {
 			const { observer, appendEntry } = makeObserver();
 			const record = createTestSubagent({
 				id: "agent-2",
@@ -105,6 +119,7 @@ describe("SubagentEventsObserver", () => {
 				error: undefined,
 				startedAt: 1000,
 				completedAt: 2000,
+				toolUses: 3, turnCount: 1, isBackground: true,
 			});
 		});
 
@@ -144,13 +159,17 @@ describe("SubagentEventsObserver", () => {
 			});
 		});
 
-		it("persists nothing and announces nothing: a run that started is not an outcome", () => {
+		it("supersedes an older outcome with a lightweight resumed-running marker", () => {
 			const { observer, appendEntry, notifications } = makeObserver();
 
-			observer.onSubagentResuming(createTestSubagent());
+			observer.onSubagentCompleted(createTestSubagent({ id: "same-child", status: "completed" }));
+			observer.onSubagentResuming(createTestSubagent({ id: "same-child", status: "running", sessionReady: true, outputFile: "/sessions/child.jsonl" }));
 
-			expect(appendEntry).not.toHaveBeenCalled();
-			expect(notifications.sendCompletion).not.toHaveBeenCalled();
+			expect(appendEntry.mock.lastCall).toEqual(["subagents:record", expect.objectContaining({ id: "same-child", status: "running", outputFile: "/sessions/child.jsonl", childSessionId: "child-session-test" })]);
+			expect(appendEntry.mock.lastCall?.[1]).not.toHaveProperty("result");
+			expect(appendEntry.mock.lastCall?.[1]).not.toHaveProperty("error");
+			expect(appendEntry.mock.lastCall?.[1]).not.toHaveProperty("completedAt");
+			expect(notifications.sendCompletion).toHaveBeenCalledTimes(1);
 		});
 	});
 
@@ -173,7 +192,7 @@ describe("SubagentEventsObserver", () => {
 			expect(emit).toHaveBeenCalledExactlyOnceWith("subagents:resumed", buildEventData(record));
 		});
 
-		it("appends subagents:record with the eight persisted fields", () => {
+		it("appends subagents:record with lifecycle metadata", () => {
 			const { observer, appendEntry } = makeObserver();
 			const record = createTestSubagent({
 				id: "agent-5",
@@ -197,6 +216,7 @@ describe("SubagentEventsObserver", () => {
 				error: undefined,
 				startedAt: 3000,
 				completedAt: 4000,
+				toolUses: 3, turnCount: 1, isBackground: true,
 			});
 		});
 
@@ -292,7 +312,7 @@ describe("SubagentEventsObserver", () => {
 			observer.onSubagentCompacted(createTestSubagent(), info);
 			observer.onSubagentCreated(createTestSubagent());
 			expect(emit).toHaveBeenCalledTimes(4);
-			expect(appendEntry).toHaveBeenCalledTimes(1);
+			expect(appendEntry).toHaveBeenCalledTimes(2);
 			// Notifications were called as a side-effect of onSubagentCompleted.
 			expect(notifications.sendCompletion).toHaveBeenCalledTimes(1);
 		});

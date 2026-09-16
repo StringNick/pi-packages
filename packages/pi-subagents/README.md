@@ -114,17 +114,24 @@ The LLM receives structured `<task-notification>` XML for parsing, while the use
 
 Launch a sub-agent.
 
-| Parameter           | Type         | Required | Description                                                      |
-| ------------------- | ------------ | -------- | ---------------------------------------------------------------- |
-| `prompt`            | string       | yes      | The task for the agent                                           |
-| `description`       | string       | yes      | Short 3-5 word summary (shown in UI)                             |
-| `subagent_type`     | string       | yes      | Agent type (built-in or custom)                                  |
-| `model`             | string       | no       | Model — `provider/modelId` or fuzzy name (`"haiku"`, `"sonnet"`) |
-| `thinking`          | string       | no       | Thinking level: off, minimal, low, medium, high, xhigh, max      |
-| `max_turns`         | number       | no       | Max agentic turns. Omit for the agent's own limit                |
-| `run_in_background` | boolean      | no       | Run without blocking                                             |
-| `resume`            | string       | no       | Agent ID to resume a previous session                            |
-| `inherit_context`   | boolean      | no       | Fork parent conversation into agent                              |
+| Parameter           | Type    | Required | Description                                                                   |
+| ------------------- | ------- | -------- | ----------------------------------------------------------------------------- |
+| `prompt`            | string  | yes      | The task for the agent                                                        |
+| `description`       | string  | new only | Short 3-5 word summary (shown in UI)                                          |
+| `subagent_type`     | string  | new only | Agent type (built-in or custom)                                               |
+| `model`             | string  | no       | Model — `provider/modelId` (legacy `provider:modelId` accepted) or fuzzy name |
+| `thinking`          | string  | no       | Thinking level: off, minimal, low, medium, high, xhigh, max                   |
+| `max_turns`         | number  | no       | Max agentic turns. Omit for the agent's own limit                             |
+| `run_in_background` | boolean | no       | Run without blocking                                                          |
+| `resume`            | string  | no       | Agent ID to resume a previous session                                         |
+| `inherit_context`   | boolean | no       | Copy parent conversation text, excluding tool I/O and images                  |
+
+For `resume`, only the existing agent ID and `prompt` are needed.
+The native session retains its type, description, model, and execution settings; new spawn options do not reconfigure it.
+Unknown types on a new launch fall back to `general-purpose` with a note.
+
+Qualified model references preserve provider identity.
+Catalog availability indicates configured credentials, not guaranteed model access for the current account.
 
 These five parameters win over the agent file's own values, which fill whichever the call leaves unset.
 An agent file can withhold one with [`locked`](./docs/configuration.md#locking-fields-against-callers); the result then names the agent and the parameters it ignored.
@@ -139,9 +146,23 @@ Check status and retrieve results from a background agent.
 | `wait`     | boolean | no       | Wait for completion           |
 | `verbose`  | boolean | no       | Include full conversation log |
 
+Token counters accumulate provider-reported usage when each assistant message completes (`message_end`); they do not estimate tokens during streaming.
+Totals include input, output, and cache-write tokens, exclude cache-read tokens, and survive compaction.
+Context usage comes from the latest native session statistics and can be unavailable after compaction until the next response.
+
 The result renders as a compact three-line summary — status, stats, description, and a one-line preview.
 Press `Ctrl+O` to expand it to the full report, bounded so a long result cannot fill the terminal; the expanded view names the transcript path when it withholds anything.
 The complete report, including the conversation `verbose` requests, always reaches the model regardless of what the terminal shows.
+
+The owning parent's canonical Pi JSONL carries `subagents:record` lifecycle metadata for history readers.
+Each admitted run or resume first appends a lightweight running marker; terminal completion, error, stop, or abort appends the final status.
+Readers use the latest record for each agent ID on the selected parent branch.
+A last-seen running marker is unverified after restart, not evidence that a process survived or that an earlier completed outcome is current.
+
+When available, records include `outputFile` and `childSessionId` from the native child `SessionManager`, alongside `toolUses`, `turnCount`, and `isBackground`.
+A host must validate the parent-owned link, canonical storage boundary, and exact child JSONL header identity before opening a historical transcript.
+Older records without linkage still describe historical outcomes but cannot authorize a guessed transcript match.
+These records neither restore live agents nor form a second conversation journal; the child transcript remains its canonical Pi JSONL.
 
 ### `steer_subagent`
 
@@ -359,7 +380,7 @@ By default the resumed outcome is announced to the parent like any other backgro
 Pass `claimOutcome: true` to declare that your extension is delivering it, which suppresses that announcement — do this only if you will actually carry the result to the parent, or it reaches nobody.
 
 Pass `signal` to cancel the resumed turn loop.
-`abort(id)` does not reach it: a resume does not run under the record's own abort controller.
+`abort(id)` also cancels a resumed run through its current native abort controller.
 
 ### `@gotgenes/pi-subagents/settings` — layered config loader
 

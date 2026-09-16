@@ -50,10 +50,12 @@ export function toAgentSession(session: MockSession): AgentSession {
 export function createSubagentSessionStub(
 	session: MockSession = createMockSession(),
 	outputFile?: string,
+	sessionId = "child-session-test",
 ) {
 	return {
 		session,
 		outputFile,
+		sessionId,
 		runTurnLoop: vi.fn().mockResolvedValue({ responseText: "done", aborted: false, steered: false }),
 		resumeTurnLoop: vi.fn().mockResolvedValue("resumed"),
 		steer: vi.fn((message: string): Promise<void> => session.steer(message) as Promise<void>),

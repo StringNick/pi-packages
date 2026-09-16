@@ -180,11 +180,12 @@ beforeEach(() => {
 });
 
 describe("SubagentSession — accessors", () => {
-  it("exposes the wrapped session and outputFile", () => {
+  it("exposes the wrapped session, canonical child identity, and outputFile", () => {
     const { session } = createSession("X");
     const { sub } = makeSubagentSession(session, { outputFile: "/out.jsonl" });
     expect(sub.session).toBe(session);
     expect(sub.outputFile).toBe("/out.jsonl");
+    expect(sub.sessionId).toBe("child-session-default");
   });
 
   it("returns undefined outputFile when none was persisted", () => {

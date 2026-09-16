@@ -28,6 +28,23 @@ function makeRegistry(models = MODELS, available?: typeof MODELS): ModelRegistry
 }
 
 describe("resolveModel", () => {
+  it("resolves legacy provider:model references without changing provider", () => {
+    const model = makeModel({ provider: "zai-coding-cn", id: "glm-5.3" });
+    expect(resolveModel("zai-coding-cn:glm-5.3", makeRegistry([model]))).toEqual(model);
+  });
+
+  it.each(["/", ":"])("never fuzzy-matches an explicit provider through another provider (%s)", (separator) => {
+    const foreign = makeModel({ provider: "proxy", id: "missing-provider/glm-5.3" });
+    expect(resolveModel(`missing-provider${separator}glm-5.3`, makeRegistry([foreign]))).toContain("Model not found");
+  });
+
+  it("preserves slashes and colons inside a qualified model id", () => {
+    const model = makeModel({ provider: "openrouter", id: "org/model:free" });
+    for (const ref of ["openrouter:org/model:free", "openrouter/org/model:free"]) {
+      expect(resolveModel(ref, makeRegistry([model]))).toEqual(model);
+    }
+  });
+
   describe("exact match (provider/modelId)", () => {
     it("resolves exact provider/modelId", () => {
       const result = resolveModel("anthropic/claude-opus-4-6", makeRegistry());
@@ -142,11 +159,9 @@ describe("resolveModel", () => {
       expect(result).toContain("openai/gpt-4o");
     });
 
-    it("empty string matches a model (multi-part vacuous truth)", () => {
-      // Empty string splits to empty parts; every() on empty array is true
-      // This is fine — callers guard against empty input
+    it("rejects empty model references", () => {
       const result = resolveModel("", makeRegistry());
-      expect(typeof result).toBe("object");
+      expect(result).toContain("Model not found");
     });
   });
 
