@@ -21,8 +21,40 @@ function inputs(overrides: Partial<ToolSurfaceInputs> = {}): ToolSurfaceInputs {
     allowedTools: ["read"],
     toolSnippets: SNIPPETS,
     guidelinesByTool: new Map(),
+    piAuthoredPreamble: true,
     ...overrides,
   };
+}
+
+/**
+ * A prompt shaped the way `buildSystemPrompt` writes one under `customPrompt`:
+ * the operator's own text, then the layers Pi appends after it. Pi writes no
+ * tool surface of its own here, so every section in it is somebody else's.
+ */
+function customAuthoredPrompt(): string {
+  return [
+    "# My Assistant",
+    "",
+    "You are my personal coding assistant.",
+    "",
+    "Available tools:",
+    "- read: only for reviewing code",
+    "",
+    "In addition to the tools above, ask me first.",
+    "",
+    "Guidelines:",
+    "- Always ask before writing files",
+    "",
+    "Answer with one word.",
+    "",
+    "<project_context>",
+    "",
+    "Project-specific instructions and guidelines:",
+    "",
+    "</project_context>",
+    "",
+    "Current working directory: /repo",
+  ].join("\n");
 }
 
 /**
@@ -103,12 +135,10 @@ describe("renderToolSurface", () => {
       expect(twice).toBe(once);
     });
 
-    it("removes a section-header-shaped line in project context, indented or not", () => {
-      // Documents current behavior rather than endorsing it: the headers are
-      // matched on their trimmed text with no check that Pi wrote them, so a
-      // project's own AGENTS.md heading of the same name is removed too.
-      // Carried over from the narrowing implementation, which mangled the same
-      // line; recorded as an accepted residual in ADR 0014.
+    it("removes a section-header-shaped line in project context when Pi wrote the preamble", () => {
+      // Pi's own sections come first in a prompt it wrote, so this heading is
+      // only reachable when Pi wrote none - which cannot happen in its default
+      // branch. Documents the behavior of the Pi-authored path.
       const prompt = [
         "You are an assistant.",
         "",
@@ -122,6 +152,25 @@ describe("renderToolSurface", () => {
 
       expect(result).not.toContain("Our team writes conventional commits.");
       expect(result).toContain("<project_context>");
+    });
+
+    it("keeps a project's own Guidelines heading when Pi did not write the preamble", () => {
+      const prompt = [
+        "You are an assistant.",
+        "",
+        "<project_context>",
+        "  Guidelines:",
+        "  - Our team writes conventional commits.",
+        "</project_context>",
+      ].join("\n");
+
+      const result = renderToolSurface(
+        prompt,
+        inputs({ piAuthoredPreamble: false }),
+      );
+
+      expect(result).toContain("  Guidelines:");
+      expect(result).toContain("  - Our team writes conventional commits.");
     });
 
     it("keeps a Guidelines section that ends the prompt from swallowing later prose", () => {
@@ -176,6 +225,86 @@ describe("renderToolSurface", () => {
       const result = renderToolSurface(prompt, inputs());
 
       expect(result).not.toContain("(none)");
+    });
+  });
+
+  describe("a preamble Pi did not write", () => {
+    const customInputs = inputs({ piAuthoredPreamble: false });
+
+    it("keeps the operator's own tool and guideline sections", () => {
+      const result = renderToolSurface(customAuthoredPrompt(), customInputs);
+
+      expect(result).toContain(
+        "Available tools:\n- read: only for reviewing code",
+      );
+      expect(result).toContain(
+        "Guidelines:\n- Always ask before writing files",
+      );
+      expect(result).toContain("In addition to the tools above, ask me first.");
+      expect(result).toContain("Answer with one word.");
+    });
+
+    it("keeps the project-context block Pi wrapped around its own layers", () => {
+      const result = renderToolSurface(customAuthoredPrompt(), customInputs);
+
+      expect(result).toContain("<project_context>");
+      expect(result).toContain("</project_context>");
+      expect(result).toContain("Project-specific instructions and guidelines:");
+    });
+
+    it("still states this session's own tool surface", () => {
+      const result = renderToolSurface(customAuthoredPrompt(), customInputs);
+      const block = result.slice(
+        result.indexOf("Current working directory: /repo"),
+      );
+
+      expect(block).toContain("Available tools:\n- read: Read file contents");
+      expect(block).toContain("- Be concise in your responses");
+    });
+
+    it("replaces the block it appended rather than appending a second one", () => {
+      const once = renderToolSurface(customAuthoredPrompt(), customInputs);
+      const twice = renderToolSurface(once, customInputs);
+
+      expect(twice).toBe(once);
+    });
+
+    it("anchors on Pi's footer, not a line of the same shape above it", () => {
+      // Anything below the anchor is treated as an extension's own block and
+      // removed, so mistaking the operator's line for Pi's would delete the
+      // sections they wrote beneath it.
+      const prompt = [
+        "Run every command from the repo root.",
+        "Current working directory: /somewhere/else",
+        "",
+        "Guidelines:",
+        "- Always ask before writing files",
+        "",
+        "Current working directory: /repo",
+      ].join("\n");
+
+      const result = renderToolSurface(prompt, customInputs);
+
+      expect(result).toContain(
+        "Guidelines:\n- Always ask before writing files",
+      );
+      expect(result).toContain("Current working directory: /somewhere/else");
+    });
+
+    it("leaves a region it removed nothing from byte for byte", () => {
+      const prompt = [
+        "You are my personal coding assistant.",
+        "",
+        "",
+        "",
+        "Answer with one word.",
+        "",
+        "Current working directory: /repo",
+      ].join("\n");
+
+      const result = renderToolSurface(prompt, customInputs);
+
+      expect(result.startsWith(prompt)).toBe(true);
     });
   });
 

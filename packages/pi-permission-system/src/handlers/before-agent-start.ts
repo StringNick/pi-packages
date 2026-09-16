@@ -22,8 +22,11 @@ interface BeforeAgentStartPayload {
    * The parts Pi assembled the prompt from. `toolSnippets` is what lets this
    * handler render the session's own tool list instead of editing the one Pi
    * wrote — including in a child, whose inherited identity carries none.
+   * `customPrompt` says whether Pi wrote a preamble at all: under one, it
+   * writes no tool surface, so there is nothing of Pi's to remove.
    */
   systemPromptOptions?: {
+    customPrompt?: string;
     toolSnippets?: Record<string, string>;
   };
 }
@@ -106,6 +109,9 @@ export class AgentPrepHandler {
       allowedTools,
       toolSnippets: event.systemPromptOptions?.toolSnippets ?? {},
       guidelinesByTool: registered.guidelinesByTool,
+      // Pi's own `if (customPrompt)` test, so an empty string reads here the
+      // way it reads there: as no custom prompt at all.
+      piAuthoredPreamble: !event.systemPromptOptions?.customPrompt,
     });
     const skillPromptResult = resolveSkillPromptEntries(
       toolSurfacePrompt,

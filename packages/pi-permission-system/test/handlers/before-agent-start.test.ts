@@ -279,6 +279,53 @@ describe("AgentPrepHandler.handle", () => {
     expect(result.systemPrompt?.startsWith(prompt)).toBe(true);
   });
 
+  it("states the session's tools when Pi built the prompt from a custom one", async () => {
+    // Every pi-subagents child is a customPrompt session too, so skipping the
+    // pass on that field would leave every child with no tool prose (#919).
+    const { handler } = makeSetup({
+      toolRegistry: { getActive: vi.fn().mockReturnValue(["read"]) },
+    });
+
+    const result = await handler.handle(
+      makeEvent("You are my personal coding assistant.", {
+        customPrompt: "You are my personal coding assistant.",
+        toolSnippets: { read: "Read file contents" },
+      }),
+      makeCtx(),
+    );
+
+    expect(result.systemPrompt).toContain(
+      "Available tools:\n- read: Read file contents",
+    );
+  });
+
+  it("keeps a custom system prompt's own tool and guideline sections", async () => {
+    const custom = [
+      "You are my personal coding assistant.",
+      "",
+      "Available tools:",
+      "- read: only for reviewing code",
+      "",
+      "Guidelines:",
+      "- Always ask before writing files",
+      "",
+      "Answer with one word.",
+    ].join("\n");
+    const { handler } = makeSetup({
+      toolRegistry: { getActive: vi.fn().mockReturnValue(["read"]) },
+    });
+
+    const result = await handler.handle(
+      makeEvent(custom, {
+        customPrompt: custom,
+        toolSnippets: { read: "Read file contents" },
+      }),
+      makeCtx(),
+    );
+
+    expect(result.systemPrompt?.startsWith(custom)).toBe(true);
+  });
+
   it("states the allowed tools instead of editing the listing Pi wrote", async () => {
     const identity = "You are an assistant.";
     const systemPrompt = [
