@@ -138,6 +138,45 @@ describe("renderToolSurface", () => {
         "Some closing prose that is not a section body.",
       );
     });
+
+    it("keeps the prose between a section and the next header-shaped line", () => {
+      // Pi's own lead-in sentence inside <project_context> ends with a colon,
+      // so a section allowed to run to "the next header" swallows everything
+      // a user wrote in between (#919, #932).
+      const prompt = [
+        "You are an assistant.",
+        "",
+        "Guidelines:",
+        "- Be concise in your responses",
+        "",
+        "Answer with one word.",
+        "",
+        "Project-specific instructions and guidelines:",
+        "- A project bullet.",
+      ].join("\n");
+
+      const result = renderToolSurface(prompt, inputs());
+
+      expect(result).toContain("Answer with one word.");
+      expect(result).toContain("Project-specific instructions and guidelines:");
+      expect(result).toContain("- A project bullet.");
+    });
+
+    it("removes Pi's empty-list placeholder with the section it belongs to", () => {
+      const prompt = [
+        "You are an assistant.",
+        "",
+        "Available tools:",
+        "(none)",
+        "",
+        "Guidelines:",
+        "- Be concise in your responses",
+      ].join("\n");
+
+      const result = renderToolSurface(prompt, inputs());
+
+      expect(result).not.toContain("(none)");
+    });
   });
 
   describe("placing this session's block", () => {

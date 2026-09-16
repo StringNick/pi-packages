@@ -46,6 +46,9 @@ const GUIDELINES_SECTION_HEADER = "Guidelines:";
  */
 const CUSTOM_TOOLS_FILLER_PREFIX = "In addition to the tools above";
 
+/** What Pi writes under `Available tools:` when no selected tool has a snippet. */
+const EMPTY_LIST_PLACEHOLDER = "(none)";
+
 /** Pi's two unconditional guideline bullets, in the order it writes them. */
 const UNIVERSAL_GUIDELINES: readonly string[] = [
   "Be concise in your responses",
@@ -209,21 +212,26 @@ function collapseExtraBlankLines(text: string): string {
   return text.replace(/\n{3,}/g, "\n\n").trimEnd();
 }
 
-function isTopLevelSectionHeader(line: string): boolean {
-  const trimmed = line.trim();
-  return (
-    trimmed.length > 0 && trimmed.endsWith(":") && !trimmed.startsWith("-")
-  );
-}
-
+/**
+ * Whether the line belongs to the body of the section above it.
+ *
+ * Pi writes a section as its header, then bullets — or the `(none)` placeholder
+ * when the list is empty — and separates it from what follows with a blank
+ * line. Anything else is already outside the section, however it is punctuated:
+ * a section that ran on to "the next line ending in a colon" swallowed the
+ * prose in between, which is somebody else's text whenever the match was not
+ * Pi's own (#919, #932).
+ */
 function isSectionBodyLine(line: string): boolean {
   const trimmed = line.trim();
   if (trimmed.length === 0) return true; // blank line
   if (trimmed.startsWith("- ")) return true; // bullet
+  if (trimmed === EMPTY_LIST_PLACEHOLDER) return true; // Pi's empty list
   if (line !== line.trimStart()) return true; // indented
   return false;
 }
 
+/** The header line plus its own body, or `null` when the header is absent. */
 function findSection(
   lines: readonly string[],
   header: string,
@@ -233,25 +241,9 @@ function findSection(
     return null;
   }
 
-  // If a subsequent recognised section header exists, use it as the boundary.
-  // This preserves the original behaviour for the common case where sections
-  // are adjacent (e.g. "Available tools:" followed by "Guidelines:") and
-  // ensures any prose continuation between the two headers is also removed.
-  for (let index = start + 1; index < lines.length; index += 1) {
-    if (isTopLevelSectionHeader(lines[index])) {
-      return { start, end: index };
-    }
-  }
-
-  // No subsequent section header — stop at the first non-body line so that
-  // content after the section (e.g. custom user notes) is not silently deleted.
   let end = start + 1;
-  for (let index = start + 1; index < lines.length; index += 1) {
-    if (!isSectionBodyLine(lines[index])) {
-      end = index;
-      break;
-    }
-    end = index + 1;
+  while (end < lines.length && isSectionBodyLine(lines[end])) {
+    end += 1;
   }
 
   return { start, end };
