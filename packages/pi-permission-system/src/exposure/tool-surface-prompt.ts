@@ -120,7 +120,14 @@ function extensionTailStart(lines: readonly string[]): number {
   return footerAt === -1 ? lines.length : footerAt + 1;
 }
 
-/** One region's surviving text: its sections removed, when they are ours to remove. */
+/**
+ * One region's surviving text: its sections removed, when they are ours to
+ * remove.
+ *
+ * Blank runs are collapsed only where a removal opened one, so a region this
+ * pass took nothing out of is returned exactly as it arrived rather than
+ * reflowed by a pass that had nothing to do with it.
+ */
 function settleRegion(
   lines: readonly string[],
   removalAllowed: boolean,
@@ -128,7 +135,9 @@ function settleRegion(
   if (!removalAllowed) {
     return lines.join("\n");
   }
-  return collapseExtraBlankLines(removeToolSurfaceSections(lines).join("\n"));
+  const kept = removeToolSurfaceSections(lines);
+  const text = kept.join("\n");
+  return kept.length === lines.length ? text : collapseExtraBlankLines(text);
 }
 
 /**

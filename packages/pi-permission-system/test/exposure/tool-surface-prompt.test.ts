@@ -317,6 +317,24 @@ describe("renderToolSurface", () => {
       );
     });
 
+    it("leaves text another extension appended byte for byte", () => {
+      const prompt = [
+        "You are an assistant.",
+        "",
+        "Current working directory: /repo",
+        "",
+        "# Working Directory",
+        "",
+        "",
+        "",
+        "Run every command from the repo root.",
+      ].join("\n");
+
+      const result = renderToolSurface(prompt, inputs());
+
+      expect(result.startsWith(prompt)).toBe(true);
+    });
+
     it("ends the prompt with the block", () => {
       const result = renderToolSurface(piAuthoredPrompt(), inputs());
 
