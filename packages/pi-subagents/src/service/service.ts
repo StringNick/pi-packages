@@ -9,7 +9,7 @@
  *   svc?.spawn("Explore", "Check for stale TODOs");
  */
 
-import type { ResumeRefusal, SubagentStatus } from "#src/lifecycle/subagent";
+import type { ResumeRefusal, SubagentRuntimeStats, SubagentStatus } from "#src/lifecycle/subagent";
 import type { ResumeRefusalReason } from "#src/lifecycle/subagent-manager";
 import type { LifetimeUsage } from "#src/lifecycle/usage";
 import type {
@@ -35,6 +35,7 @@ export type {
   LifetimeUsage,
   ResumeRefusal,
   ResumeRefusalReason,
+  SubagentRuntimeStats,
   Workspace,
   WorkspaceDisposeOutcome,
   WorkspaceDisposeResult,
@@ -122,6 +123,14 @@ export interface SubagentsService {
   /** List all tracked agents, most recent first. */
   listAgents(): SubagentRecord[];
 
+  /**
+   * Live per-run runtime facts: resolved model, context-window usage, and the
+   * tool calls currently executing. Momentary values polled per read —
+   * deliberately outside the durable `SubagentRecord` snapshot
+   * (docs/decisions/0005-subagent-record-admission-policy).
+   */
+  getRuntimeStats(id: string): SubagentRuntimeStats | undefined;
+
   /** Abort a running or queued agent. Returns false if not found. */
   abort(id: string): boolean;
 
@@ -153,6 +162,8 @@ export interface SubagentsService {
    */
   registerWorkspaceProvider(provider: WorkspaceProvider): () => void;
 }
+
+export { describeActivity } from "#src/ui/display";
 
 /** Event channel constants for pi.events subscriptions. */
 export const SUBAGENT_EVENTS = {

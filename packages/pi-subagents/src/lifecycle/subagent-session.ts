@@ -13,8 +13,10 @@
 import {
   type AgentSession,
   type AgentSessionEvent,
+  type ContextUsage,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
 import type { ChildLifecyclePublisher } from "#src/lifecycle/child-lifecycle";
 import { emitChildSessionShutdown } from "#src/lifecycle/child-shutdown";
 import { normalizeMaxTurns } from "#src/lifecycle/turn-limits";
@@ -187,6 +189,16 @@ export class SubagentSession {
   /** Return the session context window utilization (0-100), or null when unavailable. */
   getContextPercent(): number | null {
     return getSessionContextPercent(this._session);
+  }
+
+  /** Resolved model of the child session, or undefined before the first run. */
+  getModel(): Model<any> | undefined {
+    return this._session.model;
+  }
+
+  /** Context-window usage snapshot from the child session, or undefined before the first run. */
+  getContextUsage(): ContextUsage | undefined {
+    return this._session.getContextUsage();
   }
 
   /** Subscribe to session events. Satisfies `SubscribableSession`. */

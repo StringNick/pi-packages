@@ -14,12 +14,31 @@ import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import { RunListeners } from "#src/lifecycle/run-listeners";
 import type { SubagentSession, TurnLoopResult } from "#src/lifecycle/subagent-session";
 import { SubagentState, type SubagentStatus } from "#src/lifecycle/subagent-state";
-import type { LifetimeUsage } from "#src/lifecycle/usage";
+import { type LifetimeUsage, getSessionTokens } from "#src/lifecycle/usage";
 import type { WorkspaceProvider } from "#src/lifecycle/workspace";
 import { WorkspaceBracket } from "#src/lifecycle/workspace-bracket";
 import { subscribeSubagentObserver } from "#src/observation/record-observer";
 import type { RunConfig } from "#src/runtime";
 import type { CompactionInfo, ParentSessionInfo, SessionMessage, SubagentType, ThinkingLevel } from "#src/types";
+
+/** Live runtime facts for host projections — model identity and context-window
+ * usage read from the child session. Momentary values polled per read; they are
+ * deliberately kept out of the durable `SubagentRecord` snapshot
+ * (docs/decisions/0005-subagent-record-admission-policy). */
+export interface SubagentRuntimeStats {
+	/** Resolved model identity, once the child session exists. */
+	model: Readonly<{ id: string; name: string; provider: string }> | undefined;
+	/** Resolved model context window in tokens, once the model is known. */
+	contextWindow: number | undefined;
+	/** Context-window utilization (0–100), or null when unknown (e.g. right after compaction). */
+	contextPercent: number | null;
+	/** Estimated context tokens in the current window, or null when unknown. */
+	contextTokens: number | null;
+	/** Current-window token total (input + output + cacheWrite); resets at compaction. */
+	sessionTokens: number;
+	/** Tool calls currently executing, keyed by tool-call id. */
+	activeTools: ReadonlyMap<string, string>;
+}
 
 /** Per-subagent lifecycle observer — created by SubagentManager for each spawn. */
 export interface SubagentLifecycleObserver {
@@ -284,6 +303,20 @@ export class Subagent {
 	/** Return the session context window utilization (0-100), or null if unavailable. */
 	getContextPercent(): number | null {
 		return this.subagentSession?.getContextPercent() ?? null;
+	}
+
+	/** Live runtime facts (model, context-window usage, active tool calls) for host projections. */
+	getRuntimeStats(): SubagentRuntimeStats {
+		const model = this.subagentSession?.getModel();
+		const usage = this.subagentSession?.getContextUsage();
+		return {
+			model: model ? { id: model.id, name: model.name, provider: model.provider } : undefined,
+			contextWindow: model?.contextWindow,
+			contextPercent: usage?.percent ?? null,
+			contextTokens: usage?.tokens ?? null,
+			sessionTokens: this.subagentSession ? getSessionTokens(this.subagentSession) : 0,
+			activeTools: this.activeTools,
+		};
 	}
 
 	/**

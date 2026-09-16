@@ -16,6 +16,7 @@ import type {
   ResumeStartResult,
   SpawnOptions,
   SubagentRecord,
+  SubagentRuntimeStats,
   SubagentsService,
 } from "#src/service/service";
 import type { ModelRegistry } from "#src/session/model-resolver";
@@ -86,6 +87,11 @@ export class SubagentsServiceAdapter implements SubagentsService {
   getRecord(id: string): SubagentRecord | undefined {
     const record = this.manager.getRecord(id);
     return record ? toSubagentRecord(record) : undefined;
+  }
+
+  getRuntimeStats(id: string): SubagentRuntimeStats | undefined {
+    const record = this.manager.getRecord(id);
+    return record ? record.getRuntimeStats() : undefined;
   }
 
   listAgents(): SubagentRecord[] {
