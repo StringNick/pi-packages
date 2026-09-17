@@ -43,6 +43,7 @@ function makeHostedTool(locked?: LockDeclaration) {
   const deps = createToolDeps({ registry });
   deps.runtime.getModelInfo = () => ({
     parentModel: callerModel,
+    parentThinking: "medium",
     modelRegistry: {
       find: (provider, id) => models.find((model) => model.provider === provider && model.id === id),
       getAll: () => models,
@@ -61,7 +62,27 @@ function makeHostedTool(locked?: LockDeclaration) {
 }
 
 describe("AgentTool session selections", () => {
+  it("does not advertise a thinking parameter or instruct the model to pass it", () => {
+    const { tool } = makeHostedTool();
+    const definition = tool.toToolDefinition();
+    expect(definition.parameters.properties).not.toHaveProperty("thinking");
+    expect(definition.description).not.toContain("Use thinking to");
+  });
+
   describe.each([false, true])("background=%s", (background) => {
+    it.each([undefined, "high", "max", "low", "off", "turbo"])("inherits medium instead of caller %s without a type setting", async (thinking) => {
+      const { tool, manager } = makeHostedTool();
+      await tool.execute("call", {
+        ...launchParams, subagent_type: "general-purpose", model: undefined,
+        thinking, run_in_background: background,
+      }, undefined, undefined, STUB_CTX);
+      // Runner-specific bookkeeping is tested separately above.
+      expect(background ? manager.spawn : manager.spawnAndWait).toHaveBeenCalledWith(
+        STUB_SNAPSHOT, "general-purpose", launchParams.prompt,
+        expect.objectContaining({ model: callerModel, thinkingLevel: "medium" }),
+      );
+    });
+
     it.each(["off", "high", "max"])("applies the user's model and %s reasoning over caller and agent defaults", async (thinking) => {
       const { tool, manager, host } = makeHostedTool();
       host.resolveSessionModelOverride.mockReturnValue("  anthropic/selected  ");
@@ -142,7 +163,7 @@ describe("AgentTool session selections", () => {
   });
 
   it.each([
-    ["model", selectedModel, "low"],
+    ["model", selectedModel, "medium"],
     ["thinking", callerModel, "high"],
   ] as const)("a %s-only selection leaves the other caller option intact", async (field, model, thinking) => {
     const { tool, manager, host } = makeHostedTool();

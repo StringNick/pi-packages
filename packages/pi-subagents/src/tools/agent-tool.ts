@@ -104,9 +104,9 @@ export class AgentTool {
 		// Reload custom agents so new .pi/agents/*.md files are picked up without restart
 		this.registry.reload();
 
-		// Explicit user session selection wins over the assistant's tool-call
-		// param: inject it as the caller value before native merge, so `locked:`
-		// agents still discard it with the usual lock note (see session-override).
+		// User choices win over tool arguments while still respecting locks.
+		// Reasoning keeps its provenance so only explicit user configuration
+		// may raise the parent's effort baseline.
 		const sessionModel = resolveSessionModelOverride(
 			this.runtime.getSessionInfo().parentSessionId,
 			params.subagent_type,
@@ -124,12 +124,8 @@ export class AgentTool {
 			this.runtime.getSessionInfo().parentSessionId,
 		);
 		const overrideParams =
-			sessionModel !== undefined || sessionThinking !== undefined
-				? {
-						...params,
-						...(sessionModel !== undefined ? { model: sessionModel } : null),
-						...(sessionThinking !== undefined ? { thinking: sessionThinking } : null),
-					}
+			sessionModel !== undefined
+				? { ...params, model: sessionModel }
 				: params;
 		const effectiveParams =
 			!exposeCallerMaxTurns && params.max_turns !== undefined
@@ -142,6 +138,7 @@ export class AgentTool {
 			this.registry,
 			this.runtime.getModelInfo(),
 			this.settings,
+			{ thinking: sessionThinking },
 		);
 		if ("error" in config) return textResult(config.error);
 
@@ -247,7 +244,7 @@ export class AgentTool {
 			"- Use resume with an agent ID and prompt to continue a previous agent's work, or answer its question. Type and description are retained; model, thinking, and other spawn configuration do not change a resumed session.",
 			"- Use steer_subagent to send mid-run messages to a running background agent.",
 			'- Use model to specify a different model (as "provider/modelId", or fuzzy e.g. "haiku", "sonnet").',
-			"- Use thinking to control extended thinking level.",
+			"- Reasoning inherits the agent's configured thinking level, or the parent's current level when unset; it cannot be overridden through this tool.",
 			"- Unknown agent types fall back to general-purpose, with a note in the result.",
 			"- Use inherit_context to copy parent conversation text; tool calls, tool results, and images are not copied.",
 		].join("\n");
@@ -291,12 +288,6 @@ ${guidelines}
 					Type.String({
 						description:
 							'Optional model override. Accepts "provider/modelId" or fuzzy name (e.g. "haiku", "sonnet"). Omit to use the agent type\'s default. A user session selection for this agent type wins over this parameter. An agent that locks this field keeps its own model and says so in the result.',
-					}),
-				),
-				thinking: Type.Optional(
-					Type.String({
-						description:
-							"Thinking level: off, minimal, low, medium, high, xhigh, max. A user session selection for this agent type wins over this parameter. Overrides the agent's default unless the agent locks this field.",
 					}),
 				),
 				...(resolveExposeCallerMaxTurns(this.runtime.getSessionInfo().parentSessionId)

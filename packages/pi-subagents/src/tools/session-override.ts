@@ -10,6 +10,10 @@
  *   native `locked:` restriction > user session selection > tool-call
  *   param > agent definition > parent inherit
  *
+ * Reasoning has no model-facing tool parameter: user session selection >
+ * agent definition > parent inherit, subject to native locks. The explicit
+ * user selection is passed separately to spawn-config; caller thinking is ignored.
+ *
  * A locked agent discards the override through the ordinary lock path (with
  * the usual lock note in the result); an unresolvable override surfaces as an
  * error exactly like an unresolvable caller param. Absent host, missing hook,
@@ -33,7 +37,7 @@ export function resolveSessionModelOverride(
 
 /**
  * Explicit user reasoning selection for one agent type. Same door, same
- * precedence as the model hook: injected as the winning caller param, so
+ * precedence as the model hook: merged as the winning caller value, so
  * native `locked:` restrictions still discard it and unrecognized values
  * still surface through the ordinary spawn-config error path.
  */

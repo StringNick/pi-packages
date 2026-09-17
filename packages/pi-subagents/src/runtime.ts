@@ -12,7 +12,7 @@ import {
   type ParentSnapshot,
 } from "#src/lifecycle/parent-snapshot";
 import type { ModelInfo } from "#src/tools/spawn-config";
-import type { SessionContext } from "#src/types";
+import type { SessionContext, ThinkingLevel } from "#src/types";
 
 /**
  * Narrow config subset read by Agent when driving the turn loop (defaultMaxTurns, graceTurns).
@@ -32,6 +32,8 @@ export interface RunConfig {
  * Tests construct a fresh runtime per test for full isolation.
  */
 export class SubagentRuntime {
+  constructor(private readonly getThinkingLevel?: () => ThinkingLevel) {}
+
   // ── Session state (was closure-scoped in index.ts) ───────────────────────
   /** Active Pi session context — set on session_start, cleared on session_shutdown. */
   currentCtx: SessionContext | undefined = undefined;
@@ -71,13 +73,17 @@ export class SubagentRuntime {
    */
   buildSnapshot(inheritContext: boolean): ParentSnapshot {
 
-    return buildParentSnapshot(this.currentCtx!, inheritContext, this.lastPromptOptions);
+    const snapshot = buildParentSnapshot(this.currentCtx!, inheritContext, this.lastPromptOptions);
+    return this.getThinkingLevel
+      ? { ...snapshot, thinkingLevel: this.getThinkingLevel() }
+      : snapshot;
   }
 
   /** Extract model info from the current session context. */
   getModelInfo(): ModelInfo {
     return {
       parentModel: this.currentCtx?.model,
+      parentThinking: this.currentCtx ? this.getThinkingLevel?.() : undefined,
       modelRegistry: this.currentCtx?.modelRegistry,
     };
   }
@@ -96,6 +102,6 @@ export class SubagentRuntime {
  *
  * Call once at extension startup; pass the result to factories and handlers.
  */
-export function createSubagentRuntime(): SubagentRuntime {
-  return new SubagentRuntime();
+export function createSubagentRuntime(getThinkingLevel?: () => ThinkingLevel): SubagentRuntime {
+  return new SubagentRuntime(getThinkingLevel);
 }

@@ -296,7 +296,7 @@ export async function createSubagentSession(
     customTools: childTools,
     excludeTools: EXCLUDED_TOOL_NAMES,
     resourceLoader: loader,
-    thinkingLevel: cfg.thinkingLevel,
+    thinkingLevel: cfg.thinkingLevel ?? snapshot.thinkingLevel,
   });
 
   const identity = {

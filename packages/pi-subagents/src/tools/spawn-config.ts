@@ -24,6 +24,7 @@ import {
 /** Model info extracted from the parent session context. */
 export interface ModelInfo {
   parentModel: Model<any> | undefined;
+  parentThinking?: ThinkingLevel;
   modelRegistry: ModelRegistry | undefined;
 }
 
@@ -79,12 +80,15 @@ export function resolveSpawnConfig(
   registry: AgentTypeRegistry,
   modelInfo: ModelInfo,
   settings: { readonly defaultMaxTurns: number | undefined },
+  sessionOverrides: { thinking?: string } = {},
 ): ResolvedSpawnConfig | SpawnConfigError {
   // Validated at the door, so the merge below and every layer past it receive a
   // level the SDK recognizes rather than one it would clamp to "off" (Refs #834).
-  const thinkingParam = params.thinking;
-  const thinkingFromParams = parseThinkingLevel(thinkingParam);
-  if (thinkingParam != null && thinkingFromParams === undefined) {
+  // Reasoning belongs to operator configuration, never model-authored tool
+  // arguments. Ignore even undeclared/invalid caller `thinking` values.
+  const thinkingParam = sessionOverrides.thinking;
+  const sessionThinking = parseThinkingLevel(thinkingParam);
+  if (thinkingParam != null && sessionThinking === undefined) {
     return { error: thinkingLevelError(thinkingParam) };
   }
 
@@ -102,7 +106,7 @@ export function resolveSpawnConfig(
   const customConfig = registry.resolveAgentConfig(subagentType);
   const resolvedConfig = resolveAgentInvocationConfig(customConfig, {
     ...params,
-    thinking: thinkingFromParams,
+    thinking: sessionThinking,
   });
 
   // Resolve model
@@ -115,7 +119,7 @@ export function resolveSpawnConfig(
   if (resolution.error) return { error: resolution.error };
   const model = resolution.model;
 
-  const thinking = resolvedConfig.thinking;
+  const thinking = resolvedConfig.thinking ?? modelInfo.parentThinking;
   const inheritContext = resolvedConfig.inheritContext;
   const runInBackground = resolvedConfig.runInBackground;
 

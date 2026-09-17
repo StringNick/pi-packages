@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParentPromptOptions, ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import { createSubagentRuntime, SubagentRuntime } from "#src/runtime";
-import type { SessionContext } from "#src/types";
+import type { SessionContext, ThinkingLevel } from "#src/types";
 import { makeModel } from "#test/helpers/make-model";
 import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
@@ -35,6 +35,19 @@ function makeSessionCtx(overrides?: Partial<SessionContext>): SessionContext {
 }
 
 describe("createSubagentRuntime", () => {
+  it("captures live parent thinking for both spawn config and queued snapshots", () => {
+    const thinking = vi.fn((): ThinkingLevel => "medium");
+    const runtime = createSubagentRuntime(thinking);
+    runtime.setSessionContext(makeSessionCtx());
+    mockBuildParentSnapshot.mockReturnValue(STUB_SNAPSHOT);
+    expect(runtime.getModelInfo().parentThinking).toBe("medium");
+    const snapshot = runtime.buildSnapshot(false);
+    expect(snapshot.thinkingLevel).toBe("medium");
+    thinking.mockReturnValue("low");
+    expect(runtime.getModelInfo().parentThinking).toBe("low");
+    expect(snapshot.thinkingLevel).toBe("medium");
+  });
+
   it("returns correct defaults", () => {
     const runtime = createSubagentRuntime();
     expect(runtime.currentCtx).toBeUndefined();

@@ -5,7 +5,7 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { buildParentContext } from "#src/session/context";
 import type { ModelRegistry } from "#src/session/model-resolver";
-import type { SessionContext } from "#src/types";
+import type { SessionContext, ThinkingLevel } from "#src/types";
 
 /**
  * The parent session's operator-authored prompt parts, as Pi reports them on
@@ -40,6 +40,8 @@ export interface ParentSnapshot {
   systemPrompt: string;
   /** Parent's current model instance (fallback when agent config has no model). */
   model: Model<any> | undefined;
+  /** Parent effort captured at admission, not when a queue slot opens. */
+  thinkingLevel?: ThinkingLevel;
   /** Model registry for resolving config.model strings and creating sessions. */
   modelRegistry: ModelRegistry;
   /** Pre-built parent conversation text (when inheritContext was requested). */

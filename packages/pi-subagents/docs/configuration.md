@@ -167,7 +167,10 @@ The delivery option `run_in_background: true` returns immediately for a resume, 
 {"resume":"<agent ID returned earlier>","prompt":"Continue the investigation and verify the fix.","run_in_background":true}
 ```
 
-A `subagent` tool parameter wins over the agent file's value for `model`, `thinking`, `max_turns`, `inherit_context`, and `run_in_background`; the agent file supplies whichever of those the caller left unset.
+A `subagent` tool parameter wins over the agent file's value for `model`, `max_turns`, `inherit_context`, and `run_in_background`; the agent file supplies whichever of those the caller left unset.
+The tool exposes no `thinking` parameter and ignores undeclared values, including invalid ones.
+Reasoning comes from the agent file's `thinking:` field, otherwise from the parent's current level captured at launch, not the global default.
+Explicit user session reasoning selections supplied by an embedding host take precedence over that baseline, subject to `locked: thinking`.
 
 A host can withhold the caller-facing `max_turns` entirely by registering `SubagentHost.exposeCallerMaxTurns: false`: the property disappears from the LLM-visible tool schema and an undeclared caller value is discarded at the door, so turn limits come only from agent files and runtime settings. Absent or `true` keeps the native surface.
 
@@ -183,7 +186,8 @@ locked: true
 ---
 ```
 
-`locked: true` withholds every field this file sets — here `model` and `max_turns`, while `thinking`, `inherit_context`, and `run_in_background` stay open because the file names no value for them.
+`locked: true` withholds every field this file sets — here `model` and `max_turns`, while `inherit_context` and `run_in_background` stay open because the file names no value for them.
+Locking `thinking` controls host-supplied user session selections; model-authored thinking is always ignored.
 This is the behavior every agent file had before locking became opt-in, so it is the one-line way to keep an existing file working unchanged.
 
 A list withholds exactly the fields it names, in either YAML spelling:

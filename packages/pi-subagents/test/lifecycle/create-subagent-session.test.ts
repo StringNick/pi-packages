@@ -35,6 +35,17 @@ function defaultDeps() {
 }
 
 describe("createSubagentSession — assembly", () => {
+  it.each([undefined, "off", "high"] as const)(
+    "passes captured parent effort unless explicitly overridden by %s",
+    async (thinkingLevel) => {
+      await createSubagentSession(
+        { snapshot: { ...STUB_SNAPSHOT, thinkingLevel: "medium" }, type: "Explore", thinkingLevel },
+        defaultDeps(),
+      );
+      expect(io.createSession.mock.calls[0][0].thinkingLevel).toBe(thinkingLevel ?? "medium");
+    },
+  );
+
   let session: ReturnType<typeof createFactorySession>;
 
   beforeEach(() => {

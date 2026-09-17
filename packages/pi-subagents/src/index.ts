@@ -72,7 +72,7 @@ export default function (pi: ExtensionAPI) {
   );
 
   // ---- Runtime: all mutable extension state in one place ----
-  const runtime = createSubagentRuntime();
+  const runtime = createSubagentRuntime(() => pi.getThinkingLevel());
   const registry = new AgentTypeRegistry(() => {
     const ctx = runtime.currentCtx;
     // Hosted construction must not inspect ambient project/home agents before binding.

@@ -123,7 +123,6 @@ Launch a sub-agent.
 | `description`       | string  | new only | Short 3-5 word summary (shown in UI)                                          |
 | `subagent_type`     | string  | new only | Agent type (built-in or custom)                                               |
 | `model`             | string  | no       | Model — `provider/modelId` (legacy `provider:modelId` accepted) or fuzzy name |
-| `thinking`          | string  | no       | Thinking level: off, minimal, low, medium, high, xhigh, max                   |
 | `max_turns`         | number  | no       | Max agentic turns. Omit for the agent's own limit. A host may withhold this param (`SubagentHost.exposeCallerMaxTurns: false`) |
 | `run_in_background` | boolean | no       | Run without blocking                                                          |
 | `resume`            | string  | no       | Agent ID to resume a previous session                                         |
@@ -137,8 +136,11 @@ Unknown types on a new launch fall back to `general-purpose` with a note.
 Qualified model references preserve provider identity.
 Catalog availability indicates configured credentials, not guaranteed model access for the current account.
 
-These five parameters win over the agent file's own values, which fill whichever the call leaves unset.
+The `model`, `max_turns`, `inherit_context`, and `run_in_background` parameters win over the agent file's own values, which fill whichever the call leaves unset.
 An agent file can withhold one with [`locked`](./docs/configuration.md#locking-fields-against-callers); the result then names the agent and the parameters it ignored.
+Reasoning is not a tool parameter: `thinking:` in the agent's Markdown file supplies the level, otherwise the child inherits the parent's current level captured at launch.
+Undeclared `thinking` arguments are ignored; the parent model cannot raise or lower reasoning through this tool.
+An explicit user session selection from the host can override the agent definition, subject to its `locked:` restriction.
 
 ### `get_subagent_result`
 
@@ -407,8 +409,9 @@ const release = registerSubagentHost(parentSessionId, {
 Both hooks are synchronous and receive the canonical agent name; an unknown requested type resolves to `general-purpose` first.
 Methods retain the registered host as their `this` receiver.
 Values are trimmed; an absent hook, `undefined`, blank string, or throwing hook leaves the corresponding native precedence unchanged.
-Nonblank strings become explicit caller parameters: the session choice wins over the assistant's tool-call parameter, while native validation and `locked:` restrictions remain authoritative.
-An invalid nonblank thinking level reports a validation error instead of silently reverting to the caller's value.
+Nonblank model strings override the assistant's tool-call model; nonblank thinking strings override the agent definition or inherited parent level.
+Native validation and `locked:` restrictions remain authoritative.
+An invalid nonblank thinking level reports a validation error instead of silently reverting to the agent or parent level.
 These hooks apply only to new `subagent` tool launches, not resumes or `SubagentsService.spawn` calls.
 
 ### `@gotgenes/pi-subagents/settings` — layered config loader

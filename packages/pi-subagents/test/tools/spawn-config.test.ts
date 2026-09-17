@@ -145,7 +145,7 @@ describe("resolveSpawnConfig — invocation fields", () => {
     const result = resolveSpawnConfig(
       { subagent_type: "general-purpose", prompt: "test", description: "d", thinking: "high" },
       testRegistry,
-      makeModelInfo(),
+      makeModelInfo({ parentThinking: "high" }),
       defaultSettings,
     );
     if ("error" in result) return;
@@ -177,7 +177,7 @@ describe("resolveSpawnConfig — detailBase and tags", () => {
     const result = resolveSpawnConfig(
       { subagent_type: "general-purpose", prompt: "test", description: "d", thinking: "high" },
       testRegistry,
-      makeModelInfo(),
+      makeModelInfo({ parentThinking: "high" }),
       defaultSettings,
     );
     if ("error" in result) return;
@@ -222,12 +222,58 @@ describe("resolveSpawnConfig — detailBase and tags", () => {
 });
 
 describe("resolveSpawnConfig — thinking level", () => {
-  it("returns an error naming the valid levels for an unrecognized thinking param", () => {
+  it.each([
+    [undefined, undefined, undefined, "medium"],
+    ["high", undefined, undefined, "medium"],
+    ["max", undefined, undefined, "medium"],
+    ["low", undefined, undefined, "medium"],
+    ["off", undefined, undefined, "medium"],
+    ["turbo", undefined, undefined, "medium"],
+    [undefined, "high", undefined, "high"],
+    ["max", "high", undefined, "high"],
+    ["low", undefined, "high", "high"],
+    ["max", undefined, "off", "off"],
+  ] as const)("ignores caller %s and resolves agent %s and session %s to %s", (thinking, agentThinking, sessionThinking, expected) => {
+    const registry = new AgentTypeRegistry(() => new Map([
+      ["custom", {
+        name: "custom",
+        description: "Custom",
+        systemPrompt: "",
+        promptMode: "append" as const,
+        thinking: agentThinking,
+      }],
+    ]));
+    const result = resolveSpawnConfig(
+      { subagent_type: "custom", prompt: "test", description: "d", thinking },
+      registry,
+      makeModelInfo({ parentThinking: "medium" }),
+      defaultSettings,
+      { thinking: sessionThinking },
+    );
+    if ("error" in result) throw new Error(result.error);
+    expect(result.execution.thinking).toBe(expected);
+    expect(result.execution.agentInvocation.thinking).toBe(expected);
+    expect(result.presentation.agentTags).toContain(`thinking: ${expected}`);
+  });
+
+  it("does not raise an off parent without a configured override", () => {
+    const result = resolveSpawnConfig(
+      { subagent_type: "general-purpose", prompt: "test", description: "d", thinking: "max" },
+      testRegistry,
+      makeModelInfo({ parentThinking: "off" }),
+      defaultSettings,
+    );
+    if ("error" in result) throw new Error(result.error);
+    expect(result.execution.thinking).toBe("off");
+  });
+
+  it("returns an error naming valid levels for an invalid user session selection", () => {
     const result = resolveSpawnConfig(
       { subagent_type: "Explore", prompt: "test", description: "d", thinking: "turbo" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
+      { thinking: "turbo" },
     );
     expect(result).toEqual({
       error:
@@ -235,12 +281,13 @@ describe("resolveSpawnConfig — thinking level", () => {
     });
   });
 
-  it("resolves a recognized thinking param", () => {
+  it("resolves an explicit user session selection", () => {
     const result = resolveSpawnConfig(
       { subagent_type: "Explore", prompt: "test", description: "d", thinking: "xhigh" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
+      { thinking: "xhigh" },
     );
     if ("error" in result) throw new Error(result.error);
     expect(result.execution.thinking).toBe("xhigh");
