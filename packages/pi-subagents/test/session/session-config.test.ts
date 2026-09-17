@@ -6,19 +6,27 @@ import type { AgentConfig } from "#src/types";
 import { makeModel } from "#test/helpers/make-model";
 
 const mockResolveAgentConfig = vi.fn((): AgentConfig => ({
-  name: "Explore",
+  name: "explore",
   description: "Fast codebase exploration agent",
   toolNames: ["read"],
-  systemPrompt: "You are Explore.",
+  systemPrompt: "You are explore.",
   promptMode: "replace",
 }));
 const mockGetToolNamesForType = vi.fn((): string[] => ["read"]);
+const mockFindAgentConfig = vi.fn((_type: string): AgentConfig | undefined => ({
+  name: "explore",
+  description: "Fast codebase exploration agent",
+  toolNames: ["read"],
+  systemPrompt: "You are explore.",
+  promptMode: "replace",
+}));
 const mockBuildAgentPrompt: Mock<AssemblerIO["buildAgentPrompt"]> = vi.fn(
   () => "assembled system prompt",
 );
 
 /** Mock registry injected into assembleSessionConfig instead of module-level free functions. */
 const mockAgentLookup: AgentConfigLookup = {
+  findAgentConfig: mockFindAgentConfig,
   resolveAgentConfig: mockResolveAgentConfig,
   getToolNamesForType: mockGetToolNamesForType,
 };
@@ -44,9 +52,9 @@ const mockIO = {
   buildAgentPrompt: mockBuildAgentPrompt,
 };
 
-/** The Explore agent config used across the model/thinking resolution tests. */
+/** The explore agent config used across the model/thinking resolution tests. */
 function exploreConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
-  return { name: "Explore", description: "test", systemPrompt: "prompt", promptMode: "replace", ...overrides };
+  return { name: "explore", description: "test", systemPrompt: "prompt", promptMode: "replace", ...overrides };
 }
 
 beforeEach(() => {
@@ -59,8 +67,8 @@ beforeEach(() => {
 });
 
 describe("assembleSessionConfig — default agent shape", () => {
-  it("returns correct shape for Explore agent with defaults", () => {
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+  it("returns correct shape for explore agent with defaults", () => {
+    const result = assembleSessionConfig("explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.effectiveCwd).toBe("/tmp");
     expect(result.systemPrompt).toBe("assembled system prompt");
@@ -70,13 +78,13 @@ describe("assembleSessionConfig — default agent shape", () => {
   });
 
   it("uses options.cwd as effectiveCwd when provided", () => {
-    const result = assembleSessionConfig("Explore", ctx, { cwd: "/tmp/worktree" }, mockEnv, mockAgentLookup, mockIO);
+    const result = assembleSessionConfig("explore", ctx, { cwd: "/tmp/worktree" }, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.effectiveCwd).toBe("/tmp/worktree");
   });
 
   it("falls back to ctx.cwd when options.cwd is not set", () => {
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+    const result = assembleSessionConfig("explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.effectiveCwd).toBe("/tmp");
   });
@@ -86,7 +94,7 @@ describe("assembleSessionConfig — default agent shape", () => {
       (_config, _cwd, _env, inherited) => `assembled:${inherited?.systemPrompt}`,
     );
 
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+    const result = assembleSessionConfig("explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.systemPrompt).toBe("assembled:parent prompt");
   });
@@ -95,7 +103,7 @@ describe("assembleSessionConfig — default agent shape", () => {
     // The prompt builder needs the parent's cwd to redact the footer that text
     // claims — the child's own cwd is a separate argument.
     assembleSessionConfig(
-      "Explore",
+      "explore",
       ctx,
       { cwd: "/worktree" },
       mockEnv,
@@ -119,7 +127,7 @@ describe("assembleSessionConfig — default agent shape", () => {
 
 describe("assembleSessionConfig — model resolution", () => {
   it("returns undefined model when no option, no config model, no parent", () => {
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+    const result = assembleSessionConfig("explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.model).toBeUndefined();
   });
@@ -129,7 +137,7 @@ describe("assembleSessionConfig — model resolution", () => {
     mockResolveAgentConfig.mockReturnValueOnce(exploreConfig({ model: "anthropic/claude-haiku-4" }));
 
     const result = assembleSessionConfig(
-      "Explore",
+      "explore",
       { ...ctx, parentModel: makeModel({ provider: "anthropic", id: "claude-haiku-4" }) },
       { model: explicitModel },
       mockEnv,
@@ -148,7 +156,7 @@ describe("assembleSessionConfig — model resolution", () => {
       makeModel({ provider: "anthropic", id: "claude-opus-4" }),
     ]);
 
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+    const result = assembleSessionConfig("explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockRegistry.find).toHaveBeenCalledWith("anthropic", "claude-opus-4");
     expect(result.model).toBe(resolvedModel);
@@ -161,7 +169,7 @@ describe("assembleSessionConfig — model resolution", () => {
     mockRegistry.getAvailable.mockReturnValueOnce([]);
 
     const result = assembleSessionConfig(
-      "Explore",
+      "explore",
       { ...ctx, parentModel },
       {},
       mockEnv,
@@ -181,7 +189,7 @@ describe("assembleSessionConfig — model resolution", () => {
     mockRegistry.getAvailable.mockReturnValueOnce([]);
 
     const result = assembleSessionConfig(
-      "Explore",
+      "explore",
       { ...ctx, parentModel },
       {},
       mockEnv,
@@ -197,7 +205,7 @@ describe("assembleSessionConfig — model resolution", () => {
     mockResolveAgentConfig.mockReturnValueOnce(exploreConfig({ model: "claude-opus-4" })); // no provider/ prefix
 
     const result = assembleSessionConfig(
-      "Explore",
+      "explore",
       { ...ctx, parentModel },
       {},
       mockEnv,
@@ -212,7 +220,7 @@ describe("assembleSessionConfig — model resolution", () => {
     const parentModel = makeModel({ provider: "anthropic", id: "claude-haiku-4" });
 
     const result = assembleSessionConfig(
-      "Explore",
+      "explore",
       { ...ctx, parentModel },
       {},
       mockEnv,
@@ -224,30 +232,30 @@ describe("assembleSessionConfig — model resolution", () => {
   });
 });
 
-describe("assembleSessionConfig — unknown type fallback", () => {
+describe("assembleSessionConfig — resolved config forwarding", () => {
   it("passes resolved config directly to buildAgentPrompt", () => {
-    // resolveAgentConfig handles the fallback internally —
-    // session-config just forwards whatever it returns
+    // session-config just forwards whatever the registry resolves —
+    // unknown-type validation lives in the registry, not here
     mockResolveAgentConfig.mockReturnValueOnce({
-      name: "general-purpose",
-      description: "General-purpose",
+      name: "worker",
+      description: "worker",
       systemPrompt: "",
-      promptMode: "append" as const,
+      promptMode: "replace" as const,
     });
 
     mockBuildAgentPrompt.mockImplementationOnce(
       (config: { name: string }) => `resolved:${config.name}`,
     );
 
-    const result = assembleSessionConfig("unknown-custom-agent", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+    const result = assembleSessionConfig("worker", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
-    expect(result.systemPrompt).toBe("resolved:general-purpose");
+    expect(result.systemPrompt).toBe("resolved:worker");
   });
 });
 
 describe("assembleSessionConfig — thinking level", () => {
   it("returns undefined thinkingLevel when neither option nor config sets it", () => {
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+    const result = assembleSessionConfig("explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.thinkingLevel).toBeUndefined();
   });
@@ -256,7 +264,7 @@ describe("assembleSessionConfig — thinking level", () => {
     mockResolveAgentConfig.mockReturnValueOnce(exploreConfig({ thinking: "low" }));
 
     const result = assembleSessionConfig(
-      "Explore",
+      "explore",
       ctx,
       { thinkingLevel: "high" },
       mockEnv,
@@ -270,7 +278,7 @@ describe("assembleSessionConfig — thinking level", () => {
   it("agentConfig.thinking is used when no option is provided", () => {
     mockResolveAgentConfig.mockReturnValueOnce(exploreConfig({ thinking: "medium" }));
 
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+    const result = assembleSessionConfig("explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.thinkingLevel).toBe("medium");
   });
@@ -297,7 +305,7 @@ describe("assembleSessionConfig — prompt inheritance", () => {
     const childModel = makeModel({ provider: "claude-bridge", id: "opus" });
 
     assembleSessionConfig(
-      "Explore",
+      "explore",
       { ...ctx, parentModel, resolvePromptInheritance },
       { model: childModel },
       mockEnv,
@@ -319,7 +327,7 @@ describe("assembleSessionConfig — prompt inheritance", () => {
     );
 
     assembleSessionConfig(
-      "Explore",
+      "explore",
       {
         ...ctx,
         parentModel: makeModel({ provider: "anthropic", id: "sonnet" }),
@@ -338,7 +346,7 @@ describe("assembleSessionConfig — prompt inheritance", () => {
     resolvePromptInheritance.mockImplementation(() => "portable");
 
     assembleSessionConfig(
-      "Explore",
+      "explore",
       {
         ...ctx,
         parentModel: makeModel({ provider: "claude-bridge", id: "opus" }),
@@ -355,7 +363,7 @@ describe("assembleSessionConfig — prompt inheritance", () => {
 
   it("hands the prompt builder the parent's portable parts", () => {
     assembleSessionConfig(
-      "Explore",
+      "explore",
       { ...ctx, parentPortablePrompt: "<project_context>…</project_context>" },
       {},
       mockEnv,
@@ -369,7 +377,7 @@ describe("assembleSessionConfig — prompt inheritance", () => {
   });
 
   it("falls back to full when no resolver is supplied", () => {
-    assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+    assembleSessionConfig("explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(strategyPassedToPrompt()).toBe("full");
   });

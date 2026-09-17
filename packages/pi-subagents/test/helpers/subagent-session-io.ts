@@ -6,12 +6,12 @@ import type { AgentConfig, PromptInheritance, ShellExec } from "#src/types";
 import { createMockSession } from "#test/helpers/mock-session";
 import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
-/** Default AgentConfig returned by createAgentLookup. Matches the Explore stub used in factory tests. */
+/** Default AgentConfig returned by createAgentLookup. Matches the explore stub used in factory tests. */
 const DEFAULT_AGENT_CONFIG: AgentConfig = {
-	name: "Explore",
-	description: "Explore",
+	name: "explore",
+	description: "explore",
 	toolNames: ["read"],
-	systemPrompt: "You are Explore.",
+	systemPrompt: "You are explore.",
 	promptMode: "replace",
 	inheritContext: false,
 	runInBackground: false,
@@ -64,7 +64,7 @@ export function createSubagentSessionIO() {
 /**
  * Shared AgentConfigLookup stub.
  *
- * Returns the default Explore config (same as the static mock used in the
+ * Returns the default explore config (same as the static mock used in the
  * createSubagentSession tests). Pass a partial config to override specific fields.
  *
  * Tests that need per-test config mutation (create-subagent-session-extension-tools)
@@ -74,6 +74,7 @@ export function createSubagentSessionIO() {
 export function createAgentLookup(configOverrides?: Partial<AgentConfig>) {
 	const config: AgentConfig = { ...DEFAULT_AGENT_CONFIG, ...configOverrides };
 	return {
+		findAgentConfig: vi.fn((_type: string): AgentConfig | undefined => config),
 		resolveAgentConfig: vi.fn((_type: string): AgentConfig => config),
 		getToolNamesForType: vi.fn((_type: string): string[] => config.toolNames ?? ["read"]),
 	};

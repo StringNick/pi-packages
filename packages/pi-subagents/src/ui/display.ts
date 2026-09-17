@@ -118,14 +118,15 @@ export function formatDuration(startedAt: number, completedAt?: number): string 
 
 /** Get display name for any agent type (built-in or custom). */
 export function getDisplayName(type: SubagentType, registry: AgentConfigLookup): string {
-  const config = registry.resolveAgentConfig(type);
-  return config.displayName ?? config.name;
+  // A retained session may name a removed builtin or a deleted custom agent.
+  const config = registry.findAgentConfig(type);
+  return config?.displayName ?? config?.name ?? type;
 }
 
 /** Short label for prompt mode: "twin" for append, nothing for replace (the default). */
 export function getPromptModeLabel(type: SubagentType, registry: AgentConfigLookup): string | undefined {
-  const config = registry.resolveAgentConfig(type);
-  return config.promptMode === "append" ? "twin" : undefined;
+  const config = registry.findAgentConfig(type);
+  return config?.promptMode === "append" ? "twin" : undefined;
 }
 
 /** Mode label is not included — callers add it where they want it. */

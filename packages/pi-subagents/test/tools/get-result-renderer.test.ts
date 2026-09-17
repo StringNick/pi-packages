@@ -17,7 +17,7 @@ function makeTheme(): Theme {
 function makeDetails(overrides: Partial<GetResultDetails> = {}): GetResultDetails {
 	return {
 		agentId: "agent-1",
-		displayName: "Explore",
+		displayName: "explore",
 		status: "completed",
 		description: "Trace Pi tool-result rendering",
 		toolUses: 44,
@@ -50,7 +50,7 @@ describe("renderGetResultLines", () => {
 			const [first] = renderGetResultLines(makeDetails(), "", false, theme);
 
 			expect(first).toBe(
-				"[success:✓] [dim:Explore] [dim:·] [dim:44 tool uses] [dim:·] [dim:95.9k token] [dim:·] [dim:9%] [dim:·] [dim:213.0s]",
+				"[success:✓] [dim:explore] [dim:·] [dim:44 tool uses] [dim:·] [dim:95.9k token] [dim:·] [dim:9%] [dim:·] [dim:213.0s]",
 			);
 		});
 

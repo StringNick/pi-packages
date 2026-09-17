@@ -73,12 +73,12 @@ describe("AgentTool session selections", () => {
     it.each([undefined, "high", "max", "low", "off", "turbo"])("inherits medium instead of caller %s without a type setting", async (thinking) => {
       const { tool, manager } = makeHostedTool();
       await tool.execute("call", {
-        ...launchParams, subagent_type: "general-purpose", model: undefined,
+        ...launchParams, subagent_type: "worker", model: undefined,
         thinking, run_in_background: background,
       }, undefined, undefined, STUB_CTX);
       // Runner-specific bookkeeping is tested separately above.
       expect(background ? manager.spawn : manager.spawnAndWait).toHaveBeenCalledWith(
-        STUB_SNAPSHOT, "general-purpose", launchParams.prompt,
+        STUB_SNAPSHOT, "worker", launchParams.prompt,
         expect.objectContaining({ model: callerModel, thinkingLevel: "medium" }),
       );
     });
@@ -129,16 +129,13 @@ describe("AgentTool session selections", () => {
       )).toBe(true);
     });
 
-    it("reports an invalid session thinking value instead of launching with the caller's value", async () => {
+    it("throws an invalid session thinking value instead of launching with the caller's value", async () => {
       const { tool, manager, host, runtime } = makeHostedTool();
       host.resolveSessionThinkingOverride.mockReturnValue("ultra");
 
-      const result = await tool.execute("call", { ...launchParams, run_in_background: background }, undefined, undefined, STUB_CTX);
-
-      expect(result.content).toEqual([{
-        type: "text",
-        text: 'Invalid thinking level "ultra". Valid levels: off, minimal, low, medium, high, xhigh, max.',
-      }]);
+      await expect(
+        tool.execute("call", { ...launchParams, run_in_background: background }, undefined, undefined, STUB_CTX),
+      ).rejects.toThrow('Invalid thinking level "ultra". Valid levels: off, minimal, low, medium, high, xhigh, max.');
       expect(runtime.buildSnapshot).not.toHaveBeenCalled();
       expect(manager.spawn).not.toHaveBeenCalled();
       expect(manager.spawnAndWait).not.toHaveBeenCalled();
@@ -177,16 +174,16 @@ describe("AgentTool session selections", () => {
       expect.objectContaining({ model, thinkingLevel: thinking }));
   });
 
-  it("consults the fallback agent's selections for unknown types", async () => {
-    const { tool, manager, host } = makeHostedTool();
-    host.resolveSessionThinkingOverride.mockImplementation((name) => name === "general-purpose" ? "high" : undefined);
+  it("rejects unknown types without consulting selections or spawning", async () => {
+    const { tool, manager, host, runtime } = makeHostedTool();
+    host.resolveSessionThinkingOverride.mockImplementation((name) => name === "worker" ? "high" : undefined);
 
-    await tool.execute("call", { ...launchParams, subagent_type: "unknown" }, undefined, undefined, STUB_CTX);
-
-    expect(host.resolveSessionThinkingOverride).toHaveBeenCalledExactlyOnceWith("general-purpose");
-    // The fallback's other spawn options are covered by the existing spawn-config tests.
-    expect(manager.spawnAndWait).toHaveBeenCalledWith(STUB_SNAPSHOT, "general-purpose", launchParams.prompt,
-      expect.objectContaining({ thinkingLevel: "high" }));
+    await expect(
+      tool.execute("call", { ...launchParams, subagent_type: "unknown" }, undefined, undefined, STUB_CTX),
+    ).rejects.toThrow('Unknown agent type "unknown". Available types: ');
+    expect(runtime.buildSnapshot).not.toHaveBeenCalled();
+    expect(manager.spawn).not.toHaveBeenCalled();
+    expect(manager.spawnAndWait).not.toHaveBeenCalled();
   });
 });
 
@@ -204,7 +201,7 @@ describe.each([
     };
     disposers.push(registerSubagentHost("method-parent", host));
 
-    expect(resolve("method-parent", "Explore", registry)).toBe("high");
+    expect(resolve("method-parent", "explore", registry)).toBe("high");
   });
 
   it.each([undefined, "", "  "])("treats %j as no selection", (value) => {
@@ -226,7 +223,7 @@ describe.each([
       createSessionFactory: vi.fn<SubagentHost["createSessionFactory"]>(),
       admitSession: vi.fn<SubagentHost["admitSession"]>(),
     }));
-    expect(resolve("without-hooks", "Explore", registry)).toBeUndefined();
-    expect(resolve("missing-parent", "Explore", registry)).toBeUndefined();
+    expect(resolve("without-hooks", "explore", registry)).toBeUndefined();
+    expect(resolve("missing-parent", "explore", registry)).toBeUndefined();
   });
 });

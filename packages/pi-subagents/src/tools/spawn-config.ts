@@ -32,7 +32,6 @@ export interface ModelInfo {
 export interface SpawnIdentity {
   subagentType: string;
   rawType: SubagentType;
-  fellBack: boolean;
   displayName: string;
 }
 
@@ -94,11 +93,13 @@ export function resolveSpawnConfig(
 
   const rawType = params.subagent_type as SubagentType;
   const resolved = registry.resolveType(rawType);
+  if (resolved === undefined) {
+    return { error: `Unknown agent type "${rawType}". Available types: ${registry.getAvailableTypes().join(", ") || "(none)"}.` };
+  }
 
   // A disabled type is rejected by SubagentManager.resolveSpawn, the choke point
   // every front door shares.
-  const subagentType = resolved ?? "general-purpose";
-  const fellBack = resolved === undefined;
+  const subagentType = resolved;
 
   const displayName = getDisplayName(subagentType, registry);
 
@@ -156,11 +157,8 @@ export function resolveSpawnConfig(
   };
 
   return {
-    identity: { subagentType, rawType, fellBack, displayName },
-    notes: [
-      ...buildFallbackNote(rawType, fellBack),
-      ...buildLockNote(subagentType, resolvedConfig.discarded),
-    ],
+    identity: { subagentType, rawType, displayName },
+    notes: buildLockNote(subagentType, resolvedConfig.discarded),
     execution: {
       prompt: params.prompt as string,
       description: params.description as string,
@@ -173,11 +171,6 @@ export function resolveSpawnConfig(
     },
     presentation: { modelName, agentTags, detailBase },
   };
-}
-
-/** Advise that the named type does not exist, so general-purpose ran instead. */
-export function buildFallbackNote(rawType: SubagentType, fellBack: boolean): string[] {
-  return fellBack ? [`Note: Unknown agent type "${rawType}" — using general-purpose.`] : [];
 }
 
 /**

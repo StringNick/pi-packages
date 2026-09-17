@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_AGENTS, DEFAULT_AGENT_NAMES } from "#src/config/default-agents";
 import { AgentTool } from "#src/tools/agent-tool";
 import {
 	createToolDeps,
@@ -45,11 +46,11 @@ describe("AgentTool", () => {
 				refresh() { turns = next; },
 			};
 			await execute(deps, {
-				prompt: "test", description: "test", subagent_type: "general-purpose",
+				prompt: "test", description: "test", subagent_type: "worker",
 				run_in_background: background,
 			});
 			const spawn = background ? deps.manager.spawn : deps.manager.spawnAndWait;
-			expect(spawn).toHaveBeenCalledWith(expect.anything(), "general-purpose", "test",
+			expect(spawn).toHaveBeenCalledWith(expect.anything(), "worker", "test",
 				expect.objectContaining({ maxTurns: next }));
 		}
 	});
@@ -69,6 +70,7 @@ describe("AgentTool", () => {
 	it("advertises async-first delegation without polling in prompt guidelines", () => {
 		const def = makeTool(createToolDeps()).toToolDefinition();
 		expect(def.promptGuidelines).toEqual([
+			"Use subagent only when a bounded specialist task or useful parallel work justifies delegation; keep simple work and overall planning in the parent.",
 			"Prefer subagent with run_in_background: true for independent delegation, including resumes; results and questions are pushed automatically. Use foreground only when the result is needed before your next step.",
 			"Do not use get_subagent_result to poll or reflexively wait for subagent work; reserve it for full output, truncated-output recovery, transcript inspection, or diagnostics.",
 		]);
@@ -90,31 +92,38 @@ describe("AgentTool", () => {
 
 	it("derives type list from registry — includes default agents in description", () => {
 		const def = makeTool(createToolDeps()).toToolDefinition();
-		// testRegistry loads default agents: general-purpose, Explore, Plan
-		expect(def.description).toContain("- general-purpose: General-purpose agent");
-		expect(def.description).toContain("- Explore: Fast codebase exploration agent");
+		for (const [name, config] of DEFAULT_AGENTS) {
+			expect(def.description).toContain(`- ${name}: ${config.description}`);
+		}
+		expect(def.description).not.toContain("- Plan:");
+		expect(def.parameters.properties.subagent_type.description).toContain(DEFAULT_AGENT_NAMES.join(", "));
 	});
 
 	it("lists the built-in agent guidelines in registry order", () => {
 		const def = makeTool(createToolDeps()).toToolDefinition();
-		const guidelines = [
-			"- Use general-purpose for complex tasks that need file editing.",
-			"- Use Explore for codebase searches and code understanding.",
-			"- Use Plan for architecture and implementation planning.",
-		];
+		const guidelines = [...DEFAULT_AGENTS.values()].map((config) => config.toolGuideline!);
 		for (const line of guidelines) expect(def.description).toContain(line);
 		const positions = guidelines.map((line) => def.description.indexOf(line));
 		expect(positions).toEqual([...positions].sort((a, b) => a - b));
 	});
 
-	it.for(["Explore", "Plan", "general-purpose"])(
+	it.for([...DEFAULT_AGENT_NAMES])(
 		"omits the type-list entry and guideline for a disabled built-in %s",
 		(name) => {
 			const def = makeTool(createToolDepsWithDisabledBuiltInAgents(name)).toToolDefinition();
 			expect(def.description).not.toContain(`- ${name}:`);
-			expect(def.description).not.toContain(`- Use ${name} for `);
+			expect(def.description).not.toContain(DEFAULT_AGENTS.get(name)!.toolGuideline);
 		},
 	);
+
+	it("states task ownership and evidence-based integration without a mandatory pipeline", () => {
+		const def = makeTool(createToolDeps()).toToolDefinition();
+		expect(def.description).toContain("no mandatory specialist pipeline");
+		expect(def.description).toContain("self-contained task");
+		expect(def.description).toContain("disjoint write ownership");
+		expect(def.description).toContain("Do not repeat delegated investigation");
+		expect(def.description).toContain("inspect material evidence or diffs");
+	});
 
 	it("calls registry.reload() on each execute", async () => {
 		const deps = createToolDeps();
@@ -122,7 +131,7 @@ describe("AgentTool", () => {
 		await execute(deps, {
 			prompt: "test",
 			description: "test",
-			subagent_type: "general-purpose",
+			subagent_type: "worker",
 		});
 		expect(reloadSpy).toHaveBeenCalledOnce();
 		reloadSpy.mockRestore();
@@ -133,20 +142,20 @@ describe("AgentTool", () => {
 describe("AgentTool — resume path", () => {
   it("accepts only a resume id and prompt and keeps retained type and description", async () => {
     const deps = createToolDeps();
-    mockResumeRecord(deps, { type: "Explore", description: "Original investigation", result: "Resumed." });
+    mockResumeRecord(deps, { type: "explore", description: "Original investigation", result: "Resumed." });
     const def = makeTool(deps).toToolDefinition();
     expect(def.parameters.required).not.toContain("subagent_type");
     expect(def.parameters.required).not.toContain("description");
     const result = await execute(deps, { resume: "agent-1", prompt: "continue", model: "unavailable/new-model" });
     expect(result.content[0].text).toContain("Resumed.");
-    expect(result.details).toMatchObject({ subagentType: "Explore", description: "Original investigation" });
+    expect(result.details).toMatchObject({ subagentType: "explore", description: "Original investigation" });
     expect(deps.runtime.buildSnapshot).not.toHaveBeenCalled();
   });
 
   it.each([
     [{ prompt: "new task" }, "subagent_type, description"],
     [{ prompt: "new task", description: "Inspect session startup" }, "subagent_type"],
-    [{ prompt: "new task", subagent_type: "Explore" }, "description"],
+    [{ prompt: "new task", subagent_type: "explore" }, "description"],
     [{ prompt: "new task", subagent_type: " ", description: "" }, "subagent_type, description"],
     [{ prompt: "new task", subagent_type: null, description: 42 }, "subagent_type, description"],
   ])("rejects invalid new-agent identity before any work: %j", async (params, fields) => {
@@ -163,7 +172,7 @@ describe("AgentTool — resume path", () => {
   it("provides a valid new-agent example and distinguishes resume in the error", async () => {
     const deps = createToolDeps();
     await expect(execute(deps, { prompt: "new task" })).rejects.toThrow(
-      'Example: {"subagent_type":"general-purpose","description":"Investigate the reported issue","prompt":"Investigate the reported issue and summarize findings.","run_in_background":true}',
+      'Example: {"subagent_type":"explore","description":"Locate request validation","prompt":"Locate request validation and report the relevant paths and evidence. Do not edit files.","run_in_background":true}',
     );
     await expect(execute(deps, { prompt: "new task" })).rejects.toThrow(
       "To continue an existing agent, provide resume (an agent ID returned earlier) and prompt.",
@@ -177,7 +186,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "nonexistent",
 			});
 			expect(result.content[0].text).toBe(
@@ -192,7 +201,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 			expect(result.content[0].text).toBe('Agent "agent-1" has no active session to resume.');
@@ -205,7 +214,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 
@@ -222,7 +231,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 
@@ -245,7 +254,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 
@@ -259,7 +268,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 			expect(result.content[0].text).toContain("Resumed output.");
@@ -277,7 +286,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 
@@ -300,7 +309,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 
@@ -316,7 +325,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 
@@ -336,7 +345,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 
@@ -350,7 +359,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 
@@ -365,7 +374,7 @@ describe("AgentTool — resume path", () => {
 			await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 
@@ -385,7 +394,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 
@@ -398,7 +407,7 @@ describe("AgentTool — resume path", () => {
 			await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 			expect(resumed.consumed).toBe(true);
@@ -410,7 +419,7 @@ describe("AgentTool — resume path", () => {
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				resume: "agent-1",
 			});
 			expect(result.content[0].text).toContain("Agent ID: agent-1");
@@ -418,20 +427,30 @@ describe("AgentTool — resume path", () => {
 	});
 });
 
-describe("AgentTool — model resolution error", () => {
-	it("returns error when model resolution fails", async () => {
+describe("AgentTool — spawn config errors throw", () => {
+	it("throws when model resolution fails", async () => {
 		const deps = createToolDeps();
-		const result = await execute(
-			deps,
-			{
+		await expect(
+			execute(deps, {
 				prompt: "test",
 				description: "test",
-				subagent_type: "general-purpose",
+				subagent_type: "worker",
 				model: "nonexistent-model-xyz",
-			},
-		);
-		// User-specified model that doesn't resolve → error message
-		expect(result.content[0].text).toContain("nonexistent-model-xyz");
+			}),
+		).rejects.toThrow("nonexistent-model-xyz");
+		expect(deps.manager.spawn).not.toHaveBeenCalled();
+		expect(deps.manager.spawnAndWait).not.toHaveBeenCalled();
+		expect(deps.runtime.buildSnapshot).not.toHaveBeenCalled();
+	});
+
+	it("throws an actionable error for an unknown agent type before spawning", async () => {
+		const deps = createToolDeps();
+		await expect(
+			execute(deps, { prompt: "test", description: "test", subagent_type: "unknown-type" }),
+		).rejects.toThrow('Unknown agent type "unknown-type". Available types: ');
+		expect(deps.manager.spawn).not.toHaveBeenCalled();
+		expect(deps.manager.spawnAndWait).not.toHaveBeenCalled();
+		expect(deps.runtime.buildSnapshot).not.toHaveBeenCalled();
 	});
 });
 
@@ -443,7 +462,7 @@ describe("AgentTool — background execution", () => {
 		const result = await execute(deps, {
 			prompt: "do something",
 			description: "bg task",
-			subagent_type: "general-purpose",
+			subagent_type: "worker",
 			run_in_background: true,
 		});
 		const text = result.content[0].text;
@@ -461,7 +480,7 @@ describe("AgentTool — background execution", () => {
 		const result = await execute(deps, {
 			prompt: "do something",
 			description: "bg task",
-			subagent_type: "general-purpose",
+			subagent_type: "worker",
 			run_in_background: true,
 		});
 		// Background spawn succeeds — no emitEvent dep required
@@ -474,7 +493,7 @@ describe("AgentTool — background execution", () => {
 		await execute(deps, {
 			prompt: "do something",
 			description: "bg task",
-			subagent_type: "general-purpose",
+			subagent_type: "worker",
 			run_in_background: true,
 		});
 		const spawnOpts = (deps.manager.spawn as ReturnType<typeof vi.fn>).mock.calls[0][3];
@@ -491,7 +510,7 @@ describe("AgentTool — foreground execution", () => {
 		const result = await execute(deps, {
 			prompt: "do task",
 			description: "fg task",
-			subagent_type: "general-purpose",
+			subagent_type: "worker",
 		});
 		const text = result.content[0].text;
 		expect(text).toContain("Agent completed");
@@ -506,7 +525,7 @@ describe("AgentTool — foreground execution", () => {
 		const result = await execute(deps, {
 			prompt: "do task",
 			description: "fg task",
-			subagent_type: "general-purpose",
+			subagent_type: "worker",
 		});
 		expect(result.content[0].text).toContain("Agent failed");
 		expect(result.content[0].text).toContain("Out of context");
@@ -518,7 +537,7 @@ describe("AgentTool — foreground execution", () => {
 		const result = await execute(deps, {
 			prompt: "do task",
 			description: "fg task",
-			subagent_type: "general-purpose",
+			subagent_type: "worker",
 		});
 		expect(result.content[0].text).toContain("spawn failure");
 	});
@@ -531,7 +550,7 @@ describe("AgentTool — foreground execution", () => {
 		const result = await execute(deps, {
 			prompt: "do task",
 			description: "fg task",
-			subagent_type: "general-purpose",
+			subagent_type: "worker",
 		});
 		expect(result.content[0].text).toContain("Agent ID: agent-1");
 	});

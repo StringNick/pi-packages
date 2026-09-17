@@ -22,11 +22,11 @@ describe("createChildLifecyclePublisher", () => {
   it("emits subagents:child:spawning with the agent identity", () => {
     const { emit, publisher } = setup();
 
-    publisher.spawning({ agentName: "Explore", parentSessionId: "parent-42" });
+    publisher.spawning({ agentName: "explore", parentSessionId: "parent-42" });
 
     expect(emit).toHaveBeenCalledOnce();
     expect(emit).toHaveBeenCalledWith(SUBAGENT_CHILD_SPAWNING, {
-      agentName: "Explore",
+      agentName: "explore",
       parentSessionId: "parent-42",
     });
   });
@@ -51,7 +51,7 @@ describe("createChildLifecyclePublisher", () => {
 
     publisher.completed({
       sessionDir: "/sessions/child-abc",
-      agentName: "Explore",
+      agentName: "explore",
       aborted: false,
       steered: true,
     });
@@ -59,7 +59,7 @@ describe("createChildLifecyclePublisher", () => {
     expect(emit).toHaveBeenCalledOnce();
     expect(emit).toHaveBeenCalledWith(SUBAGENT_CHILD_COMPLETED, {
       sessionDir: "/sessions/child-abc",
-      agentName: "Explore",
+      agentName: "explore",
       aborted: false,
       steered: true,
     });
@@ -94,10 +94,10 @@ describe("createChildLifecyclePublisher", () => {
   it("passes an undefined parentSessionId through unchanged", () => {
     const { emit, publisher } = setup();
 
-    publisher.spawning({ agentName: "general-purpose", parentSessionId: undefined });
+    publisher.spawning({ agentName: "worker", parentSessionId: undefined });
 
     expect(emit).toHaveBeenCalledWith(SUBAGENT_CHILD_SPAWNING, {
-      agentName: "general-purpose",
+      agentName: "worker",
       parentSessionId: undefined,
     });
   });

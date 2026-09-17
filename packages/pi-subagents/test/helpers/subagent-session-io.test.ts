@@ -51,7 +51,7 @@ describe("createSubagentSessionIO", () => {
 		const io = createSubagentSessionIO();
 		io.assemblerIO.buildAgentPrompt.mockReturnValue("custom prompt");
 		const result = io.assemblerIO.buildAgentPrompt(
-			{ name: "Explore", systemPrompt: "", promptMode: "replace" },
+			{ name: "explore", systemPrompt: "", promptMode: "replace" },
 			"/cwd",
 			{ isGitRepo: false, branch: "", platform: "linux" },
 		);
@@ -66,22 +66,28 @@ describe("createSubagentSessionIO", () => {
 });
 
 describe("createAgentLookup", () => {
-	it("resolveAgentConfig returns the default Explore config", () => {
+	it("resolveAgentConfig returns the default explore config", () => {
 		const lookup = createAgentLookup();
-		const config = lookup.resolveAgentConfig("Explore");
-		expect(config.name).toBe("Explore");
+		const config = lookup.resolveAgentConfig("explore");
+		expect(config.name).toBe("explore");
 		expect(config.promptMode).toBe("replace");
+	});
+
+	it("findAgentConfig returns the default explore config", () => {
+		const lookup = createAgentLookup();
+		expect(lookup.findAgentConfig("explore")?.name).toBe("explore");
+		expect(lookup.findAgentConfig("EXPLORE")?.name).toBe("explore");
 	});
 
 	it("default config toolNames includes 'read'", () => {
 		const lookup = createAgentLookup();
-		const config = lookup.resolveAgentConfig("Explore");
+		const config = lookup.resolveAgentConfig("explore");
 		expect(config.toolNames).toContain("read");
 	});
 
 	it("getToolNamesForType returns ['read'] by default", () => {
 		const lookup = createAgentLookup();
-		expect(lookup.getToolNamesForType("Explore")).toEqual(["read"]);
+		expect(lookup.getToolNamesForType("explore")).toEqual(["read"]);
 	});
 
 	it("accepts a partial config override", () => {
@@ -97,6 +103,7 @@ describe("createAgentLookup", () => {
 	it("resolveAgentConfig and getToolNamesForType are vi.fn() stubs", () => {
 		const lookup = createAgentLookup();
 		expect(lookup.resolveAgentConfig.mock).toBeDefined();
+		expect(lookup.findAgentConfig.mock).toBeDefined();
 		expect(lookup.getToolNamesForType.mock).toBeDefined();
 	});
 });

@@ -17,7 +17,7 @@ async function fixture() {
     observer: { onSubagentStarted() {}, onSubagentCreated() {}, onSubagentCompleted() {}, onSubagentResuming() {}, onSubagentResumed: resumed, onSubagentCompacted() {}, onSubagentExecutionSettled: settled },
   });
   managers.push(manager);
-  const record = await manager.spawnAndWait(STUB_SNAPSHOT, "general-purpose", "initial", { description: "initial" });
+  const record = await manager.spawnAndWait(STUB_SNAPSHOT, "worker", "initial", { description: "initial" });
   await record.promise;
   resumed.mockClear(); settled.mockClear();
   return { manager, stub, record, resumed, settled, admission };

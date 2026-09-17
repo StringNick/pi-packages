@@ -80,7 +80,7 @@ export interface AgentConfig extends AgentIdentity, AgentPromptConfig {
   runInBackground?: boolean;
   /** Fields a `subagent` tool caller may not override. Omitted — every field is overridable. */
   locked?: LockDeclaration;
-  /** One-line usage guideline for the subagent tool's Guidelines: block. Omitted — no guideline line. */
+  /** Parent-facing routing guidance (frontmatter `tool_guideline`), separate from child instructions. */
   toolGuideline?: string;
   /** true = this is an embedded default agent (informational) */
   isDefault?: boolean;
@@ -88,6 +88,8 @@ export interface AgentConfig extends AgentIdentity, AgentPromptConfig {
   enabled?: boolean;
   /** Where this agent was loaded from */
   source?: "default" | "project" | "global";
+  /** Exact file selected by native discovery; preserves case on disk. */
+  sourcePath?: string;
 }
 
 export interface AgentInvocation {

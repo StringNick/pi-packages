@@ -55,7 +55,7 @@ describe("SessionLifecycleHandler", () => {
           customType: "subagents:record",
           data: {
             id: "a1",
-            type: "general-purpose",
+            type: "worker",
             description: "old work",
             status: "completed",
             outputFile: "/tmp/parent/tasks/x.jsonl",

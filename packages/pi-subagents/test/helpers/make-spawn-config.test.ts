@@ -5,10 +5,9 @@ describe("createResolvedSpawnConfig", () => {
   it("produces a foreground-shaped config by default", () => {
     expect(createResolvedSpawnConfig()).toEqual({
       identity: {
-        subagentType: "general-purpose",
-        rawType: "general-purpose",
-        fellBack: false,
-        displayName: "Agent",
+        subagentType: "worker",
+        rawType: "worker",
+        displayName: "worker",
       },
       notes: [],
       execution: {
@@ -31,9 +30,9 @@ describe("createResolvedSpawnConfig", () => {
         modelName: undefined,
         agentTags: [],
         detailBase: {
-          displayName: "Agent",
+          displayName: "worker",
           description: "task",
-          subagentType: "general-purpose",
+          subagentType: "worker",
           modelName: undefined,
           tags: undefined,
         },
@@ -43,12 +42,12 @@ describe("createResolvedSpawnConfig", () => {
 
   it("applies the scalar overrides", () => {
     const config = createResolvedSpawnConfig({
-      displayName: "General-purpose",
+      displayName: "Worker",
       prompt: "do something",
       description: "bg task",
       runInBackground: true,
     });
-    expect(config.identity.displayName).toBe("General-purpose");
+    expect(config.identity.displayName).toBe("Worker");
     expect(config.execution.prompt).toBe("do something");
     expect(config.execution.description).toBe("bg task");
   });
@@ -59,31 +58,31 @@ describe("createResolvedSpawnConfig", () => {
     expect(config.execution.agentInvocation.runInBackground).toBe(true);
   });
 
-  it("defaults rawType to subagentType but keeps an explicit fallback rawType", () => {
-    expect(createResolvedSpawnConfig().identity.rawType).toBe("general-purpose");
-    const fallback = createResolvedSpawnConfig({ fellBack: true, rawType: "unknown-type" });
-    expect(fallback.identity.fellBack).toBe(true);
-    expect(fallback.identity.rawType).toBe("unknown-type");
+  it("defaults rawType to subagentType but keeps an explicit rawType", () => {
+    expect(createResolvedSpawnConfig().identity.rawType).toBe("worker");
+    const config = createResolvedSpawnConfig({ subagentType: "explore", rawType: "EXPLORE" });
+    expect(config.identity.subagentType).toBe("explore");
+    expect(config.identity.rawType).toBe("EXPLORE");
   });
 
-  it("derives the unknown-type note from fellBack and rawType", () => {
-    expect(createResolvedSpawnConfig({ fellBack: true, rawType: "unknown-type" }).notes).toEqual([
-      'Note: Unknown agent type "unknown-type" — using general-purpose.',
-    ]);
+  it("carries explicit notes verbatim", () => {
+    const notes = ['Note: agent "worker" locks model, so the model parameter was ignored.'];
+    expect(createResolvedSpawnConfig({ notes }).notes).toEqual(notes);
+    expect(createResolvedSpawnConfig().notes).toEqual([]);
   });
 
   it("mirrors displayName, description, subagentType, and model into presentation.detailBase", () => {
     const config = createResolvedSpawnConfig({
-      subagentType: "Explore",
-      displayName: "Explore",
+      subagentType: "explore",
+      displayName: "explore",
       description: "scan repo",
       model: "haiku",
     });
     expect(config.presentation.modelName).toBe("haiku");
     expect(config.presentation.detailBase).toEqual({
-      displayName: "Explore",
+      displayName: "explore",
       description: "scan repo",
-      subagentType: "Explore",
+      subagentType: "explore",
       modelName: "haiku",
       tags: undefined,
     });

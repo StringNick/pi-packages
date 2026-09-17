@@ -67,7 +67,7 @@ describe("createTestSubagent", () => {
 	it("returns a completed agent with expected defaults", () => {
 		const record = createTestSubagent();
 		expect(record.id).toBe("agent-1");
-		expect(record.type).toBe("general-purpose");
+		expect(record.type).toBe("worker");
 		expect(record.description).toBe("Test task");
 		expect(record.status).toBe("completed");
 		expect(record.result).toBe("All done.");

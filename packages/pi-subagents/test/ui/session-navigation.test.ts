@@ -31,7 +31,7 @@ describe("listNavigableAgents", () => {
     const [entry] = listNavigableAgents([released], registry);
     expect(entry.kind).toBe("snapshot");
     expect(entry.kind === "snapshot" && entry.outputFile).toBe("/tasks/released-1.jsonl");
-    expect(entry.label).toBe("Agent (Investigate the bug) · 3 tools · completed · 3.0s · session released (snapshot)");
+    expect(entry.label).toBe("worker (Investigate the bug) · 3 tools · completed · 3.0s · session released (snapshot)");
   });
 
   it("drops a record with neither a live session nor an outputFile", () => {
@@ -41,7 +41,7 @@ describe("listNavigableAgents", () => {
 
   it("builds a label with name, description, tool count, status, and duration", () => {
     const record = makeNavigable({
-      type: "general-purpose",
+      type: "worker",
       description: "Investigate the bug",
       toolUses: 3,
       status: "completed",
@@ -49,8 +49,8 @@ describe("listNavigableAgents", () => {
       completedAt: 4000,
     });
     const [entry] = listNavigableAgents([record], registry);
-    // getDisplayName resolves "general-purpose" against the empty registry to its fallback display name.
-    expect(entry.label).toBe("Agent (Investigate the bug) · 3 tools · completed · 3.0s");
+    // getDisplayName resolves "worker" against the registry; unknown names fall back to the raw type.
+    expect(entry.label).toBe("worker (Investigate the bug) · 3 tools · completed · 3.0s");
   });
 
   it("orders live entries before snapshot ones", () => {

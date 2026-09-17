@@ -5,7 +5,7 @@
  * User agents override defaults with the same name. Disabled agents are kept but excluded from spawning.
  */
 
-import { DEFAULT_AGENTS } from "#src/config/default-agents";
+import { DEFAULT_AGENT_NAMES, DEFAULT_AGENTS } from "#src/config/default-agents";
 import type { AgentConfig } from "#src/types";
 
 // ── AgentConfigLookup interface ──────────────────────────────────────────────
@@ -15,6 +15,12 @@ import type { AgentConfig } from "#src/types";
  * Prefer this over the full `AgentTypeRegistry` in function signatures (ISP).
  */
 export interface AgentConfigLookup {
+  /**
+   * Non-throwing lookup, case-insensitive. Returns undefined for unregistered
+   * types — for historical UI names (e.g. labels from older sessions) that no
+   * longer resolve. Callers that need a config must use `resolveAgentConfig`.
+   */
+  findAgentConfig(type: string): AgentConfig | undefined;
   resolveAgentConfig(type: string): AgentConfig;
   getToolNamesForType(type: string): string[];
 }
@@ -31,8 +37,8 @@ export interface AgentConfigLookup {
 export class AgentTypeRegistry implements AgentConfigLookup {
   private agents = new Map<string, AgentConfig>();
 
-  /** The three embedded default agent names. */
-  static readonly DEFAULT_AGENT_NAMES = ["general-purpose", "Explore", "Plan"] as const;
+  /** The embedded default agent names — single-sourced from default-agents. */
+  static readonly DEFAULT_AGENT_NAMES = DEFAULT_AGENT_NAMES;
 
   constructor(private loadUserAgents: () => Map<string, AgentConfig>) {
     this.reload();
@@ -101,24 +107,27 @@ export class AgentTypeRegistry implements AgentConfigLookup {
     return this.resolveAgentConfig(type).toolNames ?? [...BUILTIN_TOOL_NAMES];
   }
 
-  /** Resolve agent config with guaranteed non-null return. Falls back: unknown → general-purpose → absolute fallback. */
-  resolveAgentConfig(type: string): AgentConfig {
+  /**
+   * Non-throwing lookup, case-insensitive. Returns the config when `type` names
+   * a registered agent (disabled included) — undefined otherwise.
+   */
+  findAgentConfig(type: string): AgentConfig | undefined {
     const key = this.resolveKey(type);
-    const config = key ? this.agents.get(key) : undefined;
+    return key ? this.agents.get(key) : undefined;
+  }
+
+  /**
+   * Resolve agent config, case-insensitive. Throws an actionable error for
+   * unknown types — there is no builtin fallback. A user-defined agent may
+   * reuse a retired name (e.g. Plan); that resolves here as an ordinary entry.
+   */
+  resolveAgentConfig(type: string): AgentConfig {
+    const config = this.findAgentConfig(type);
     if (config) return config;
-
-    const gp = this.agents.get("general-purpose");
-    if (gp) return gp;
-
-    // Absolute fallback (should never happen in practice)
-    return {
-      name: type,
-      displayName: "Agent",
-      description: "General-purpose agent for complex, multi-step tasks",
-      toolNames: BUILTIN_TOOL_NAMES,
-      systemPrompt: "",
-      promptMode: "append",
-    };
+    const available = this.getAvailableTypes();
+    throw new Error(
+      `Unknown agent type "${type}". Available types: ${available.join(", ") || "(none)"}.`
+    );
   }
 
   private resolveKey(name: string): string | undefined {

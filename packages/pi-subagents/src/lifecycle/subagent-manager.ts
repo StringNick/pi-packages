@@ -428,12 +428,14 @@ export class SubagentManager {
    */
   private resolveSpawn(type: string, background: BackgroundRequest): ResolvedSpawn {
     const canonical = this.registry.resolveType(type);
-    if (canonical !== undefined && !this.registry.isValidType(canonical)) {
+    if (canonical === undefined) {
+      throw new Error(`Unknown agent type "${type}". Choose an enabled agent type from the catalog.`);
+    }
+    if (!this.registry.isValidType(canonical)) {
       throw new Error(`Agent type "${canonical}" is disabled`);
     }
-    const resolvedType = canonical ?? "general-purpose";
-    const agentConfig = this.registry.resolveAgentConfig(resolvedType);
-    return { type: resolvedType, isBackground: resolveBackgroundMode(agentConfig, background) };
+    const agentConfig = this.registry.resolveAgentConfig(canonical);
+    return { type: canonical, isBackground: resolveBackgroundMode(agentConfig, background) };
   }
 
   /** Create, register, and start (or queue) a record for an already-resolved spawn. */

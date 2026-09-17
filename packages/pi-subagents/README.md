@@ -27,7 +27,7 @@ Run them in foreground or background, steer them mid-run, resume completed sessi
 - **Mid-run updates** — an agent that finds something material calls `notify_parent` and keeps working; the message arrives on its own while you are idle and that agent is still running, and otherwise rides that agent's own result, so you hear it exactly once and never as a stale prompt to steer an agent that has finished
 - **Graceful turn limits** — agents get a "wrap up" warning before hard abort, producing clean partial results instead of cut-off output
 - **Case-insensitive agent types** — `"explore"`, `"Explore"`, `"EXPLORE"` all work.
-  Unknown types fall back to general-purpose with a note
+  Builtins are `explore`, `worker`, `reviewer`, and `oracle`; unknown types are rejected rather than silently falling back
 - **Fuzzy model selection** — specify models by name (`"haiku"`, `"sonnet"`) instead of full IDs, with automatic filtering to only available/configured models
 - **Context inheritance** — optionally fork the parent conversation into a sub-agent so it knows what's been discussed
 - **Styled completion notifications** — background agent results render as themed, compact notification boxes (icon, stats, result preview) instead of raw XML.
@@ -52,7 +52,7 @@ The parent agent spawns sub-agents using the `subagent` tool:
 
 ```text
 subagent({
-  subagent_type: "Explore",
+  subagent_type: "explore",
   prompt: "Find all files that handle authentication",
   description: "Find auth files",
   run_in_background: true,
@@ -70,7 +70,7 @@ The extension renders a persistent widget above the editor showing active backgr
 ● Agents
 ├─ ⠹ Agent  Refactor auth module · ↻5≤30 · 5 tool uses · 33.8k token (62%) · 12.3s
 │    ⎿  editing 2 files…
-├─ ⠹ Explore  Find auth files · ↻3 · 3 tool uses · 12.4k token (8%) · 4.1s
+├─ ⠹ explore  Find auth files · ↻3 · 3 tool uses · 12.4k token (8%) · 4.1s
 │    ⎿  searching…
 ├─ ⠹ Agent  Long-running task · ↻42 · 38 tool uses · 91.0k token (84% · ⇊2) · 2m17s
 │    ⎿  reading…
@@ -131,7 +131,7 @@ Launch a sub-agent.
 For `resume`, only the existing agent ID and `prompt` are needed.
 The native session retains its type, description, model, and execution settings; new spawn options do not reconfigure it.
 Add `run_in_background: true` to resume without blocking; omitted or false waits for that resumed run as before.
-Unknown types on a new launch fall back to `general-purpose` with a note.
+Unknown types on a new launch are rejected with the available types.
 
 Qualified model references preserve provider identity.
 Catalog availability indicates configured credentials, not guaranteed model access for the current account.
@@ -322,7 +322,7 @@ Access the subagent service from another extension at runtime:
 ```typescript
 const { getSubagentsService } = await import("@gotgenes/pi-subagents");
 const svc = getSubagentsService();
-svc?.spawn("Explore", "Check for stale TODOs");
+svc?.spawn("explore", "Check for stale TODOs");
 ```
 
 Declare this package as an optional peer dependency.
@@ -334,7 +334,7 @@ See `src/service/service.ts` for the full `SubagentsService` interface and the `
 Use `getRecord(id)` to poll, `steer` to send a message, and the `subagents:completed` event to learn when it finished.
 
 The agent type is canonicalized, so `"explore"` and `"Explore"` reach the same agent.
-An unrecognized type falls back to `general-purpose` rather than throwing, matching the `subagent` tool's behavior.
+An unrecognized or disabled type is rejected, matching the `subagent` tool's behavior.
 
 It throws in four cases:
 
@@ -406,7 +406,7 @@ const release = registerSubagentHost(parentSessionId, {
 // Call release() when the owning parent AgentSession is disposed.
 ```
 
-Both hooks are synchronous and receive the canonical agent name; an unknown requested type resolves to `general-purpose` first.
+Both hooks are synchronous and receive the canonical agent name; unknown types skip the hooks and are rejected at spawn.
 Methods retain the registered host as their `this` receiver.
 Values are trimmed; an absent hook, `undefined`, blank string, or throwing hook leaves the corresponding native precedence unchanged.
 Nonblank model strings override the assistant's tool-call model; nonblank thinking strings override the agent definition or inherited parent level.
@@ -504,7 +504,7 @@ Anything attaching to the core either subscribes to a lifecycle event, or regist
 - _Policy about what a child may do._
   Tool restriction is allow/ask/deny in a permission layer, not a binary hide in a spawner — see [Migrating from `disallowed_tools`](#migrating-from-disallowed_tools).
 - _Widening a child's tool allowlist with **capability** tools on the agent's behalf._
-  An agent's `tools:` frontmatter is the only thing that admits a capability tool, and no settings key may name one, because a settings-level list would hand a read-only `Explore` agent write-capable tools from a file its author never saw.
+  An agent's `tools:` frontmatter is the only thing that admits a capability tool, and no settings key may name one, because a settings-level list would hand a read-only `explore` agent write-capable tools from a file its author never saw.
   The core does install its own protocol in every child — the `<active_agent>` tag, the parent-context prefix, and the `ask_parent` / `notify_parent` tools — none of which reaches the filesystem, the shell, or the network.
 - _A global run-mode default._
   Foreground or background is a per-invocation argument and a per-agent frontmatter key; a global flip changes every existing agent file at once.

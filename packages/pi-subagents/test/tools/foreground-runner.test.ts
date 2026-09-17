@@ -205,17 +205,20 @@ describe("runForeground", () => {
 		expect(result.content[0].text).toContain("runner crashed");
 	});
 
-	it("includes fallback note when fellBack is true", async () => {
+	it("includes the spawn's lock note ahead of the result", async () => {
 		const { manager } = createToolDeps();
 		const result = await runForeground(
 			manager,
 			makeParams({
-				config: createResolvedSpawnConfig({ rawType: "unknown-type", fellBack: true, description: "fg task" }),
+				config: createResolvedSpawnConfig({
+					description: "fg task",
+					notes: ['Note: agent "worker" locks model, so the model parameter was ignored.'],
+				}),
 			}),
 			undefined,
 			undefined,
 		);
-		expect(result.content[0].text).toContain('Unknown agent type "unknown-type"');
+		expect(result.content[0].text).toContain('Note: agent "worker" locks model');
 	});
 
 	it("calls onUpdate with streaming details while running", async () => {
@@ -279,13 +282,16 @@ describe("runForeground", () => {
 			const result = await runForeground(
 				manager,
 				makeParams({
-					config: createResolvedSpawnConfig({ rawType: "unknown-type", fellBack: true, description: "fg task" }),
+					config: createResolvedSpawnConfig({
+						description: "fg task",
+						notes: ['Note: agent "worker" locks model, so the model parameter was ignored.'],
+					}),
 				}),
 				undefined,
 				undefined,
 			);
 			const text = result.content[0].text;
-			expect(text.startsWith('Note: Unknown agent type "unknown-type" — using general-purpose.')).toBe(true);
+			expect(text.startsWith('Note: agent "worker" locks model, so the model parameter was ignored.')).toBe(true);
 			expect(text.indexOf("Agent ID: agent-1")).toBeGreaterThan(0);
 		});
 	});

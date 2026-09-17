@@ -39,13 +39,13 @@ describe("SubagentEventsObserver", () => {
 	describe("onSubagentStarted", () => {
 		it("emits subagents:started with id, type, description", () => {
 			const { observer, emit } = makeObserver();
-			const record = createTestSubagent({ id: "agent-1", type: "general-purpose", description: "do work" });
+			const record = createTestSubagent({ id: "agent-1", type: "worker", description: "do work" });
 
 			observer.onSubagentStarted(record);
 
 			expect(emit).toHaveBeenCalledExactlyOnceWith("subagents:started", {
 				id: "agent-1",
-				type: "general-purpose",
+				type: "worker",
 				description: "do work",
 			});
 		});
@@ -101,7 +101,7 @@ describe("SubagentEventsObserver", () => {
 			const { observer, appendEntry } = makeObserver();
 			const record = createTestSubagent({
 				id: "agent-2",
-				type: "Explore",
+				type: "explore",
 				description: "explore code",
 				status: "completed",
 				result: "found it",
@@ -114,7 +114,7 @@ describe("SubagentEventsObserver", () => {
 
 			expect(appendEntry).toHaveBeenCalledExactlyOnceWith("subagents:record", {
 				id: "agent-2",
-				type: "Explore",
+				type: "explore",
 				description: "explore code",
 				status: "completed",
 				result: "found it",
@@ -148,7 +148,7 @@ describe("SubagentEventsObserver", () => {
 			const { observer, emit } = makeObserver();
 			const record = createTestSubagent({
 				id: "agent-1",
-				type: "general-purpose",
+				type: "worker",
 				description: "do work",
 			});
 
@@ -156,7 +156,7 @@ describe("SubagentEventsObserver", () => {
 
 			expect(emit).toHaveBeenCalledExactlyOnceWith("subagents:resuming", {
 				id: "agent-1",
-				type: "general-purpose",
+				type: "worker",
 				description: "do work",
 			});
 		});
@@ -198,7 +198,7 @@ describe("SubagentEventsObserver", () => {
 			const { observer, appendEntry } = makeObserver();
 			const record = createTestSubagent({
 				id: "agent-5",
-				type: "Explore",
+				type: "explore",
 				description: "resume explore",
 				status: "completed",
 				result: "resumed it",
@@ -211,7 +211,7 @@ describe("SubagentEventsObserver", () => {
 
 			expect(appendEntry).toHaveBeenCalledExactlyOnceWith("subagents:record", {
 				id: "agent-5",
-				type: "Explore",
+				type: "explore",
 				description: "resume explore",
 				status: "completed",
 				result: "resumed it",
@@ -275,13 +275,13 @@ describe("SubagentEventsObserver", () => {
 	describe("onSubagentCreated", () => {
 		it("emits subagents:created with id, type, description, and isBackground: true", () => {
 			const { observer, emit } = makeObserver();
-			const record = createTestSubagent({ id: "agent-4", type: "general-purpose", description: "bg task" });
+			const record = createTestSubagent({ id: "agent-4", type: "worker", description: "bg task" });
 
 			observer.onSubagentCreated(record);
 
 			expect(emit).toHaveBeenCalledExactlyOnceWith("subagents:created", {
 				id: "agent-4",
-				type: "general-purpose",
+				type: "worker",
 				description: "bg task",
 				isBackground: true,
 			});
@@ -323,13 +323,13 @@ describe("SubagentEventsObserver", () => {
 	describe("onSubagentUpdate", () => {
 		it("emits subagents:update carrying the child's message", () => {
 			const { observer, emit } = makeObserver();
-			const record = createTestSubagent({ id: "agent-1", type: "general-purpose", description: "do work" });
+			const record = createTestSubagent({ id: "agent-1", type: "worker", description: "do work" });
 
 			observer.onSubagentUpdate(record, "The bug is in the retry wrapper.");
 
 			expect(emit).toHaveBeenCalledExactlyOnceWith("subagents:update", {
 				id: "agent-1",
-				type: "general-purpose",
+				type: "worker",
 				description: "do work",
 				message: "The bug is in the retry wrapper.",
 			});

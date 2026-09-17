@@ -95,7 +95,7 @@ export function createTestSubagent(overrides: TestSubagentOptions = {}): Subagen
 	for (const update of runUpdates ?? []) state.recordUpdate(update);
 	const agent = new Subagent({
 		id: id ?? "agent-1",
-		type: type ?? "general-purpose",
+		type: type ?? "worker",
 		description: description ?? "Test task",
 		isBackground: isBackground ?? true,
 		execution: execution ?? makeStubExecution({

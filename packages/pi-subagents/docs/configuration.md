@@ -7,16 +7,39 @@ For the tools, commands, events, and service API, see the [README](../README.md)
 
 ## Default Agent Types
 
-| Type              | Tools                      | Model                         | Prompt Mode            | Description                                                                                      |
-| ----------------- | -------------------------- | ----------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------ |
-| `general-purpose` | all 7                      | inherit                       | `append` (parent twin) | Inherits the parent's prompt identity — same rules, CLAUDE.md, project conventions               |
-| `Explore`         | read, bash, grep, find, ls | haiku (falls back to inherit) | `replace`              | Fast codebase exploration (read-only); inherits the parent prompt as a base                      |
-| `Plan`            | read, bash, grep, find, ls | inherit                       | `replace`              | Software architect for implementation planning (read-only); inherits the parent prompt as a base |
+| Type | Tools | Model | Prompt Mode | Purpose |
+| --- | --- | --- | --- | --- |
+| `explore` | read, bash, grep, find, ls | inherit | `replace` | Locate code and trace behavior |
+| `worker` | all 7 builtins | inherit | `replace` | Implement and verify a bounded change |
+| `reviewer` | read, bash, grep, find, ls | inherit | `replace` | Report concrete, evidence-backed defects |
+| `oracle` | read, bash, grep, find, ls | inherit | `replace` | Advise on difficult architecture, root causes, and tradeoffs |
 
-The `general-purpose` agent is a **parent twin** — it receives the parent's inherited identity and nothing of its own, so it follows the same rules the parent does.
-Explore and Plan use `replace` mode: the parent prompt is the cacheable base and their specialist read-only instructions are appended last, giving them the final say.
+Specialists use `replace` mode, retaining parent identity with their role instructions appended.
+All builtins inherit model and thinking unless configured or overridden; explore no longer pins Haiku.
+Context is fresh by default; `inherit_context: true` copies conversation text, not tool calls/results or images.
+There is no builtin `plan` or `general-purpose`: overall planning stays with the parent.
+Existing user-defined agents (including `Plan.md` or `general-purpose.md`) remain ordinary custom agents; no user files or historical sessions are rewritten.
+Unknown agent types are rejected rather than silently selecting a different role.
+The read-only roles omit edit/write tools and prohibit shell writes and side-effecting checks in their prompts, but `bash` is not sandboxed by these definitions.
+Containment and approvals are host responsibilities.
 
-Default agents can be **overridden** by creating a `.md` file with the same name (e.g. `.pi/agents/general-purpose.md`), or **disabled** per-project with `enabled: false` frontmatter.
+Default agents can be **overridden** by creating a `.md` file with the same name (e.g. `.pi/agents/worker.md`), or **disabled** per-project with `enabled: false` frontmatter.
+Names resolve case-insensitively; an existing `Explore.md` overrides the canonical `explore` builtin.
+Native discovery retains the selected file as `AgentConfig.sourcePath`, so hosts can read the original file without reconstructing its casing from the canonical name.
+
+### Parent delegation contract
+
+The tool description lists enabled roles and their routing guidelines dynamically.
+Set `tool_guideline` in an agent's frontmatter to tell the parent when to choose that role and when not to.
+It applies to custom agents and builtin overrides as well as the embedded defaults; disabled roles and empty guidelines are omitted.
+This is routing guidance for the parent, not an instruction appended to the child system prompt.
+An override is a complete agent definition: omitting or clearing `tool_guideline` removes its explicit routing guidance rather than inheriting the builtin's potentially stale advice.
+Keep simple work local; there is no mandatory explore → worker → reviewer pipeline.
+Supply an objective, evidence and paths, constraints, owned scope, success checks, and a concise output contract.
+Use background execution for independent work and foreground when the answer is on the critical path.
+Assign disjoint write ownership for parallel work, and do not redo a delegated investigation while it runs.
+Inspect material evidence or diffs on return and verify integration proportional to risk; the parent remains responsible for the final answer.
+Use oracle for a difficult decision, reviewer for defects in an artifact, and worker for implementation with local investigation and checks.
 
 ## What a child inherits from the parent's prompt
 
@@ -104,6 +127,7 @@ The global location follows the upstream `PI_CODING_AGENT_DIR` env var — set i
 ```markdown
 ---
 description: Security Code Reviewer
+tool_guideline: Use for security-sensitive changes; avoid routine implementation.
 tools: read, grep, find, bash
 model: anthropic/claude-opus-4-6
 thinking: high
@@ -134,6 +158,7 @@ All fields are optional — sensible defaults for everything.
 | Field               | Default        | Description                                                                                                                                                                                                                                   |
 | ------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `description`       | filename       | Agent description shown in tool listings                                                                                                                                                                                                      |
+| `tool_guideline` | — | Plain-text parent routing guidance: when to use or avoid this role. Multiline strings are supported; omit or leave empty for no explicit guidance |
 | `display_name`      | —              | Display name for UI (e.g. widget, agent list)                                                                                                                                                                                                 |
 | `tools`             | all 7          | The agent's complete tool allowlist — built-in or extension-registered names. `none` for no tools. See [Tool selection](#tool-selection)                                                                                                      |
 | `model`             | inherit parent | Model — `provider/modelId` (legacy `provider:modelId` is accepted) or fuzzy name (`"haiku"`, `"sonnet"`)                                                                                                                                      |
@@ -155,10 +180,10 @@ Although the schema leaves type and description optional to support resume calls
 Missing, blank, or invalid type/description fields fail the tool call before an agent starts, with the affected fields and a corrected example.
 
 ```json
-{"subagent_type":"general-purpose","description":"Investigate the reported issue","prompt":"Investigate the reported issue and summarize findings."}
+{"subagent_type":"explore","description":"Locate request validation","prompt":"Locate request validation and report paths and evidence without editing files."}
 ```
 
-Unknown types fall back to `general-purpose` and report that fallback.
+Unknown types are rejected with the available types so the caller can correct the request.
 To continue an existing agent, supply only `resume` and `prompt`; the retained session keeps its original type, description, model, and execution settings.
 New spawn options do not reconfigure a resumed session.
 The delivery option `run_in_background: true` returns immediately for a resume, with the next result or question delivered automatically; omitted or false retains the awaited resume behavior.

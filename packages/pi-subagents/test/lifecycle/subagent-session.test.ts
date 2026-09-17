@@ -165,7 +165,7 @@ function makeSubagentSession(
     outputFile: hasOutputFile ? metaOverrides.outputFile : "/sessions/child.jsonl",
     sessionId: metaOverrides?.sessionId ?? "child-session-default",
     sessionDir: metaOverrides?.sessionDir ?? "/sessions/dir",
-    agentName: metaOverrides?.agentName ?? "Explore",
+    agentName: metaOverrides?.agentName ?? "explore",
     agentMaxTurns: metaOverrides?.agentMaxTurns,
     parentContext: metaOverrides?.parentContext,
     lifecycle,
@@ -305,12 +305,12 @@ describe("SubagentSession — runTurnLoop parent abort signal", () => {
 describe("SubagentSession — runTurnLoop lifecycle events", () => {
   it("emits completed with the run outcome on the success path", async () => {
     const { session } = createSession("OK");
-    const { sub } = makeSubagentSession(session, { sessionDir: "/d", agentName: "Explore", lifecycle });
+    const { sub } = makeSubagentSession(session, { sessionDir: "/d", agentName: "explore", lifecycle });
     await sub.runTurnLoop("go", {});
     expect(lifecycle.completed).toHaveBeenCalledOnce();
     expect(lifecycle.completed).toHaveBeenCalledWith({
       sessionDir: "/d",
-      agentName: "Explore",
+      agentName: "explore",
       aborted: false,
       steered: false,
     });

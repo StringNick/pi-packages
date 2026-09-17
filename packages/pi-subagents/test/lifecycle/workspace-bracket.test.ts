@@ -5,7 +5,7 @@ import { makeWorkspace, makeWorkspaceProvider } from "#test/helpers/make-workspa
 
 const ctx = {
 	agentId: "agent-1",
-	agentType: "general-purpose" as const,
+	agentType: "worker" as const,
 	baseCwd: "/parent",
 };
 

@@ -20,7 +20,7 @@ function arrange(parent = "parent", child = "child") {
   const host = { createSessionFactory: vi.fn(async () => io), bindSession, admitSession };
   const dispose = registerSubagentHost(parent, host);
   disposers.push(dispose);
-  const params = { snapshot: STUB_SNAPSHOT, type: "Explore", runId: `run-${parent}`, parentSession: { parentSessionId: parent, parentSessionFile: "/sessions/parent.jsonl" } };
+  const params = { snapshot: STUB_SNAPSHOT, type: "explore", runId: `run-${parent}`, parentSession: { parentSessionId: parent, parentSessionFile: "/sessions/parent.jsonl" } };
   return { deps, io, session, params, host, release, dispose };
 }
 
@@ -30,7 +30,7 @@ describe("hosted child assembly", () => {
     disposers.push(release, other);
     release(); release();
     const deps = createSubagentSessionDeps();
-    await expect(createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "Explore", runId: "run", parentSession: { parentSessionId: "missing" } }, deps)).rejects.toThrow("requires a registered subagent host");
+    await expect(createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "explore", runId: "run", parentSession: { parentSessionId: "missing" } }, deps)).rejects.toThrow("requires a registered subagent host");
     expect(deps.io.createSession).not.toHaveBeenCalled();
     other();
     expect(getSubagentHost("missing")).toBeUndefined();

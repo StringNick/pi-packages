@@ -2,120 +2,79 @@
  * default-agents.ts — Embedded default agent configurations.
  *
  * These are always available but can be overridden by user .md files with the same name.
+ * A user-defined agent may use any name, including a retired one like "Plan" or
+ * "general-purpose", which then lives on as an ordinary custom agent.
  */
 
+import { EXPLORE_SYSTEM_PROMPT, ORACLE_SYSTEM_PROMPT, REVIEWER_SYSTEM_PROMPT, WORKER_SYSTEM_PROMPT } from "#src/config/role-prompts";
 import type { AgentConfig } from "#src/types";
 
+/**
+ * Canonical names of the embedded default agents, in registry (routing) order.
+ * Single source: DEFAULT_AGENTS is built from this tuple so the two cannot drift.
+ * Names are exact lowercase; a user file matching one case-insensitively
+ * (e.g. a legacy Explore.md) overrides the canonical builtin (see custom-agents).
+ */
+export const DEFAULT_AGENT_NAMES = ["explore", "worker", "reviewer", "oracle"] as const;
+
+/** One of the embedded default agent names. */
+export type DefaultAgentName = (typeof DEFAULT_AGENT_NAMES)[number];
+
+/** Tools for read-oriented roles: inspect code, never change it. */
 const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls"];
 
-export const DEFAULT_AGENTS: Map<string, AgentConfig> = new Map([
-  [
-    "general-purpose",
-    {
-      name: "general-purpose",
-      displayName: "Agent",
-      description: "General-purpose agent for complex, multi-step tasks",
-      toolGuideline: "- Use general-purpose for complex tasks that need file editing.",
-      // toolNames omitted — means "all available tools" (resolved at lookup time)
-      // inheritContext / runInBackground omitted — strategy fields, callers decide per-call.
-      // No built-in declares `locked`: Explore's haiku is a cost default, not a
-      // correctness one, so a caller that knows better may override it (#829).
-      systemPrompt: "",
-      promptMode: "append",
-      isDefault: true,
-    },
-  ],
-  [
-    "Explore",
-    {
-      name: "Explore",
-      displayName: "Explore",
-      description: "Fast codebase exploration agent (read-only)",
-      toolGuideline: "- Use Explore for codebase searches and code understanding.",
-      toolNames: READ_ONLY_TOOLS,
-      model: "anthropic/claude-haiku-4-5-20251001",
-      systemPrompt: `# CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS
-You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
-Your role is EXCLUSIVELY to search and analyze existing code. You do NOT have access to file editing tools.
+// No built-in sets model / thinking (every built-in inherits the parent's), declares
+// `locked` (a caller that knows better may override anything), or sets
+// inheritContext / runInBackground (strategy fields, callers decide per-call).
+const DEFINITIONS: Record<DefaultAgentName, AgentConfig> = {
+  explore: {
+    name: "explore",
+    displayName: "explore",
+    description: "Fast codebase exploration agent (read-only)",
+    toolGuideline:
+      "Use explore for codebase discovery and tracing behavior; avoid implementation and review verdicts. The parent owns planning.",
+    toolNames: READ_ONLY_TOOLS,
+    systemPrompt: EXPLORE_SYSTEM_PROMPT,
+    promptMode: "replace",
+    isDefault: true,
+  },
+  worker: {
+    name: "worker",
+    displayName: "worker",
+    description: "Implementation worker for a parent-approved change",
+    toolGuideline:
+      "Use worker for a bounded implementation or fix, including local investigation and checks; avoid open-ended architecture decisions. The parent sets scope.",
+    // toolNames omitted — a worker needs the normal built-in tools.
+    systemPrompt: WORKER_SYSTEM_PROMPT,
+    promptMode: "replace",
+    isDefault: true,
+  },
+  reviewer: {
+    name: "reviewer",
+    displayName: "reviewer",
+    description: "Code reviewer for evidence-backed findings (read-only)",
+    toolGuideline:
+      "Use reviewer for an evidence-backed review of a change; avoid fixes and planning, which remain with the parent — it reports findings only.",
+    toolNames: READ_ONLY_TOOLS,
+    systemPrompt: REVIEWER_SYSTEM_PROMPT,
+    promptMode: "replace",
+    isDefault: true,
+  },
+  oracle: {
+    name: "oracle",
+    displayName: "oracle",
+    description: "Architecture oracle for root-cause and tradeoff questions (read-only)",
+    toolGuideline:
+      "Use oracle for difficult architecture, root-cause, or tradeoff questions; avoid routine lookup, code review, and implementation. The parent owns the final decision and plan.",
+    toolNames: READ_ONLY_TOOLS,
+    // inheritContext deliberately omitted: history is available when the caller
+    // requests it, never forced.
+    systemPrompt: ORACLE_SYSTEM_PROMPT,
+    promptMode: "replace",
+    isDefault: true,
+  },
+};
 
-You are STRICTLY PROHIBITED from:
-- Creating new files
-- Modifying existing files
-- Deleting files
-- Moving or copying files
-- Creating temporary files anywhere, including /tmp
-- Using redirect operators (>, >>, |) or heredocs to write to files
-- Running ANY commands that change system state
-
-Use Bash ONLY for read-only operations: ls, git status, git log, git diff, find, cat, head, tail.
-
-# Tool Usage
-- Use the find tool for file pattern matching (NOT the bash find command)
-- Use the grep tool for content search (NOT bash grep/rg command)
-- Use the read tool for reading files (NOT bash cat/head/tail)
-- Use Bash ONLY for read-only operations
-- Make independent tool calls in parallel for efficiency
-- Adapt search approach based on thoroughness level specified
-
-# Output
-- Use absolute file paths in all references
-- Report findings as regular messages
-- Do not use emojis
-- Be thorough and precise`,
-      promptMode: "replace",
-      isDefault: true,
-    },
-  ],
-  [
-    "Plan",
-    {
-      name: "Plan",
-      displayName: "Plan",
-      description: "Software architect for implementation planning (read-only)",
-      toolGuideline: "- Use Plan for architecture and implementation planning.",
-      toolNames: READ_ONLY_TOOLS,
-      systemPrompt: `# CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS
-You are a software architect and planning specialist.
-Your role is EXCLUSIVELY to explore the codebase and design implementation plans.
-You do NOT have access to file editing tools — attempting to edit files will fail.
-
-You are STRICTLY PROHIBITED from:
-- Creating new files
-- Modifying existing files
-- Deleting files
-- Moving or copying files
-- Creating temporary files anywhere, including /tmp
-- Using redirect operators (>, >>, |) or heredocs to write to files
-- Running ANY commands that change system state
-
-# Planning Process
-1. Understand requirements
-2. Explore thoroughly (read files, find patterns, understand architecture)
-3. Design solution based on your assigned perspective
-4. Detail the plan with step-by-step implementation strategy
-
-# Requirements
-- Consider trade-offs and architectural decisions
-- Identify dependencies and sequencing
-- Anticipate potential challenges
-- Follow existing patterns where appropriate
-
-# Tool Usage
-- Use the find tool for file pattern matching (NOT the bash find command)
-- Use the grep tool for content search (NOT bash grep/rg command)
-- Use the read tool for reading files (NOT bash cat/head/tail)
-- Use Bash ONLY for read-only operations
-
-# Output Format
-- Use absolute file paths
-- Do not use emojis
-- End your response with:
-
-### Critical Files for Implementation
-List 3-5 files most critical for implementing this plan:
-- /absolute/path/to/file.ts - [Brief reason]`,
-      promptMode: "replace",
-      isDefault: true,
-    },
-  ],
-]);
+export const DEFAULT_AGENTS: Map<string, AgentConfig> = new Map(
+  DEFAULT_AGENT_NAMES.map((name): [string, AgentConfig] => [name, DEFINITIONS[name]]),
+);

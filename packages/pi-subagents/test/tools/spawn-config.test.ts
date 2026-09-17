@@ -20,51 +20,76 @@ const defaultSettings = { defaultMaxTurns: undefined as number | undefined };
 describe("resolveSpawnConfig — type resolution", () => {
   it("resolves a known agent type", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d" },
+      { subagent_type: "worker", prompt: "test", description: "d" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
     );
     expect("error" in result && result.error).toBeFalsy();
-    if ("error" in result) return;
-    expect(result.identity.subagentType).toBe("general-purpose");
-    expect(result.identity.fellBack).toBe(false);
+    if ("error" in result) throw new Error(result.error);
+    expect(result.identity.subagentType).toBe("worker");
+    expect("fellBack" in result.identity).toBe(false);
   });
 
-  it("falls back to general-purpose for unknown agent type", () => {
+  it("resolves case-insensitively to the canonical lowercase name", () => {
+    const result = resolveSpawnConfig(
+      { subagent_type: "EXPLORE", prompt: "test", description: "d" },
+      testRegistry,
+      makeModelInfo(),
+      defaultSettings,
+    );
+    if ("error" in result) throw new Error(result.error);
+    expect(result.identity.subagentType).toBe("explore");
+    expect(result.identity.rawType).toBe("EXPLORE");
+  });
+
+  it("returns an actionable error for an unknown agent type", () => {
     const result = resolveSpawnConfig(
       { subagent_type: "unknown-type", prompt: "test", description: "d" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
     );
-    expect("error" in result && result.error).toBeFalsy();
-    if ("error" in result) return;
-    expect(result.identity.subagentType).toBe("general-purpose");
-    expect(result.identity.fellBack).toBe(true);
+    expect(result).toEqual({
+      error: `Unknown agent type "unknown-type". Available types: ${testRegistry.getAvailableTypes().join(", ")}.`,
+    });
+  });
+
+  it("returns an actionable error for retired builtins", () => {
+    for (const retired of ["general-purpose", "Plan"]) {
+      const result = resolveSpawnConfig(
+        { subagent_type: retired, prompt: "test", description: "d" },
+        testRegistry,
+        makeModelInfo(),
+        defaultSettings,
+      );
+      expect(result).toEqual({
+        error: `Unknown agent type "${retired}". Available types: ${testRegistry.getAvailableTypes().join(", ")}.`,
+      });
+    }
   });
 
   it("sets displayName from registry", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "Explore", prompt: "test", description: "d" },
+      { subagent_type: "explore", prompt: "test", description: "d" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
     );
-    if ("error" in result) return;
-    expect(result.identity.displayName).toBe("Explore");
+    if ("error" in result) throw new Error(result.error);
+    expect(result.identity.displayName).toBe("explore");
   });
 
   it("uses displayName from agent config when available", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d" },
+      { subagent_type: "worker", prompt: "test", description: "d" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
     );
-    if ("error" in result) return;
-    // general-purpose config has displayName: "Agent"
-    expect(result.identity.displayName).toBe("Agent");
+    if ("error" in result) throw new Error(result.error);
+    // worker config has displayName: "worker"
+    expect(result.identity.displayName).toBe("worker");
   });
 });
 
@@ -72,12 +97,12 @@ describe("resolveSpawnConfig — model resolution", () => {
   it("inherits parent model when no model specified", () => {
     const parentModel = makeModel({ id: "claude-sonnet", name: "Claude Sonnet" });
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d" },
+      { subagent_type: "worker", prompt: "test", description: "d" },
       testRegistry,
       makeModelInfo({ parentModel }),
       defaultSettings,
     );
-    if ("error" in result) return;
+    if ("error" in result) throw new Error(result.error);
     expect(result.execution.model).toBe(parentModel);
     // modelName is undefined when same as parent
     expect(result.presentation.modelName).toBeUndefined();
@@ -85,7 +110,7 @@ describe("resolveSpawnConfig — model resolution", () => {
 
   it("returns error when user-specified model cannot be resolved", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d", model: "nonexistent-xyz" },
+      { subagent_type: "worker", prompt: "test", description: "d", model: "nonexistent-xyz" },
       testRegistry,
       makeModelInfo({ modelRegistry: { find: () => undefined, getAll: () => [], getAvailable: () => [] } }),
       defaultSettings,
@@ -97,34 +122,34 @@ describe("resolveSpawnConfig — model resolution", () => {
 describe("resolveSpawnConfig — max turns normalization", () => {
   it("normalizes max_turns from params", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d", max_turns: 10 },
+      { subagent_type: "worker", prompt: "test", description: "d", max_turns: 10 },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
     );
-    if ("error" in result) return;
+    if ("error" in result) throw new Error(result.error);
     expect(result.execution.effectiveMaxTurns).toBe(10);
   });
 
   it("uses settings defaultMaxTurns when no max_turns in params", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d" },
+      { subagent_type: "worker", prompt: "test", description: "d" },
       testRegistry,
       makeModelInfo(),
       { defaultMaxTurns: 25 },
     );
-    if ("error" in result) return;
+    if ("error" in result) throw new Error(result.error);
     expect(result.execution.effectiveMaxTurns).toBe(25);
   });
 
   it("returns undefined effectiveMaxTurns when neither params nor settings specify", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d" },
+      { subagent_type: "worker", prompt: "test", description: "d" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
     );
-    if ("error" in result) return;
+    if ("error" in result) throw new Error(result.error);
     expect(result.execution.effectiveMaxTurns).toBeUndefined();
   });
 });
@@ -132,23 +157,23 @@ describe("resolveSpawnConfig — max turns normalization", () => {
 describe("resolveSpawnConfig — invocation fields", () => {
   it("sets runInBackground from params", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d", run_in_background: true },
+      { subagent_type: "worker", prompt: "test", description: "d", run_in_background: true },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
     );
-    if ("error" in result) return;
+    if ("error" in result) throw new Error(result.error);
     expect(result.execution.runInBackground).toBe(true);
   });
 
   it("builds agentInvocation snapshot", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d", thinking: "high" },
+      { subagent_type: "worker", prompt: "test", description: "d", thinking: "high" },
       testRegistry,
       makeModelInfo({ parentThinking: "high" }),
       defaultSettings,
     );
-    if ("error" in result) return;
+    if ("error" in result) throw new Error(result.error);
     expect(result.execution.agentInvocation).toEqual({
       modelName: undefined,
       thinking: "high",
@@ -162,61 +187,75 @@ describe("resolveSpawnConfig — invocation fields", () => {
 describe("resolveSpawnConfig — detailBase and tags", () => {
   it("builds detailBase with description from params", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "my task" },
+      { subagent_type: "worker", prompt: "test", description: "my task" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
     );
-    if ("error" in result) return;
+    if ("error" in result) throw new Error(result.error);
     expect(result.presentation.detailBase.description).toBe("my task");
-    expect(result.presentation.detailBase.subagentType).toBe("general-purpose");
-    expect(result.presentation.detailBase.displayName).toBe("Agent");
+    expect(result.presentation.detailBase.subagentType).toBe("worker");
+    expect(result.presentation.detailBase.displayName).toBe("worker");
   });
 
   it("includes thinking tag when thinking is set", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d", thinking: "high" },
+      { subagent_type: "worker", prompt: "test", description: "d", thinking: "high" },
       testRegistry,
       makeModelInfo({ parentThinking: "high" }),
       defaultSettings,
     );
-    if ("error" in result) return;
+    if ("error" in result) throw new Error(result.error);
     expect(result.presentation.agentTags).toContain("thinking: high");
   });
 
   it("omits mode label for replace-mode agents", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "Explore", prompt: "test", description: "d" },
+      { subagent_type: "explore", prompt: "test", description: "d" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
     );
-    if ("error" in result) return;
-    // Explore has promptMode: "replace" → no mode label, no invocation overrides
+    if ("error" in result) throw new Error(result.error);
+    // explore has promptMode: "replace" → no mode label, no invocation overrides
     expect(result.presentation.agentTags).toEqual([]);
   });
 
-  it("includes twin tag for append-mode agents like general-purpose", () => {
+  it("includes twin tag for an explicit custom append-mode agent", () => {
+    const twinRegistry = new AgentTypeRegistry(
+      () =>
+        new Map([
+          [
+            "twin",
+            {
+              name: "twin",
+              description: "Custom twin",
+              systemPrompt: "",
+              promptMode: "append" as const,
+            },
+          ],
+        ]),
+    );
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d" },
-      testRegistry,
+      { subagent_type: "twin", prompt: "test", description: "d" },
+      twinRegistry,
       makeModelInfo(),
       defaultSettings,
     );
-    if ("error" in result) return;
-    // general-purpose has promptMode: "append" → gets "twin" label
+    if ("error" in result) throw new Error(result.error);
+    // custom append-mode agent → gets "twin" label (no builtin is append anymore)
     expect(result.presentation.agentTags).toContain("twin");
   });
 
   it("sets tags to undefined on detailBase for replace-mode agents with no invocation overrides", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "Explore", prompt: "test", description: "d" },
+      { subagent_type: "explore", prompt: "test", description: "d" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
     );
-    if ("error" in result) return;
-    // Explore has promptMode: "replace" and no invocation overrides → no tags
+    if ("error" in result) throw new Error(result.error);
+    // explore has promptMode: "replace" and no invocation overrides → no tags
     expect(result.presentation.detailBase.tags).toBeUndefined();
   });
 });
@@ -258,7 +297,7 @@ describe("resolveSpawnConfig — thinking level", () => {
 
   it("does not raise an off parent without a configured override", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d", thinking: "max" },
+      { subagent_type: "worker", prompt: "test", description: "d", thinking: "max" },
       testRegistry,
       makeModelInfo({ parentThinking: "off" }),
       defaultSettings,
@@ -269,7 +308,7 @@ describe("resolveSpawnConfig — thinking level", () => {
 
   it("returns an error naming valid levels for an invalid user session selection", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "Explore", prompt: "test", description: "d", thinking: "turbo" },
+      { subagent_type: "explore", prompt: "test", description: "d", thinking: "turbo" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
@@ -283,7 +322,7 @@ describe("resolveSpawnConfig — thinking level", () => {
 
   it("resolves an explicit user session selection", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "Explore", prompt: "test", description: "d", thinking: "xhigh" },
+      { subagent_type: "explore", prompt: "test", description: "d", thinking: "xhigh" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
@@ -297,12 +336,12 @@ describe("resolveSpawnConfig — thinking level", () => {
 describe("resolveSpawnConfig — notes", () => {
   it("carries no note for a known agent type", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "Explore", prompt: "test", description: "d" },
+      { subagent_type: "explore", prompt: "test", description: "d" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
     );
-    if ("error" in result) return;
+    if ("error" in result) throw new Error(result.error);
     expect(result.notes).toEqual([]);
   });
 
@@ -370,61 +409,30 @@ describe("resolveSpawnConfig — notes", () => {
       'Note: agent "pinned" locks model, so the model parameter was ignored.',
     ]);
   });
-
-  it("carries the unknown-type note when the type fell back", () => {
-    const result = resolveSpawnConfig(
-      { subagent_type: "unknown-type", prompt: "test", description: "d" },
-      testRegistry,
-      makeModelInfo(),
-      defaultSettings,
-    );
-    if ("error" in result) return;
-    expect(result.notes).toEqual([
-      'Note: Unknown agent type "unknown-type" — using general-purpose.',
-    ]);
-  });
-
-  it("reports the fallback before the lock when a project pins the fallback agent", () => {
-    const pinnedFallback = new AgentTypeRegistry(
-      () =>
-        new Map([
-          [
-            "general-purpose",
-            {
-              name: "general-purpose",
-              description: "Pinned general-purpose",
-              systemPrompt: "",
-              promptMode: "append" as const,
-              maxTurns: 7,
-              locked: true as const,
-            },
-          ],
-        ]),
-    );
-    const result = resolveSpawnConfig(
-      { subagent_type: "unknown-type", prompt: "test", description: "d", max_turns: 3 },
-      pinnedFallback,
-      makeModelInfo(),
-      defaultSettings,
-    );
-    if ("error" in result) throw new Error(result.error);
-    expect(result.notes).toEqual([
-      'Note: Unknown agent type "unknown-type" — using general-purpose.',
-      'Note: agent "general-purpose" locks max_turns, so the max_turns parameter was ignored.',
-    ]);
-  });
 });
 
 describe("resolveSpawnConfig — prompt and rawType passthrough", () => {
   it("passes through prompt and rawType", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "Explore", prompt: "search for bugs", description: "bug search" },
+      { subagent_type: "explore", prompt: "search for bugs", description: "bug search" },
       testRegistry,
       makeModelInfo(),
       defaultSettings,
     );
-    if ("error" in result) return;
+    if ("error" in result) throw new Error(result.error);
     expect(result.execution.prompt).toBe("search for bugs");
-    expect(result.identity.rawType).toBe("Explore");
+    expect(result.identity.rawType).toBe("explore");
+  });
+
+  it("preserves the caller's casing in rawType", () => {
+    const result = resolveSpawnConfig(
+      { subagent_type: "EXPLORE", prompt: "search for bugs", description: "bug search" },
+      testRegistry,
+      makeModelInfo(),
+      defaultSettings,
+    );
+    if ("error" in result) throw new Error(result.error);
+    expect(result.identity.subagentType).toBe("explore");
+    expect(result.identity.rawType).toBe("EXPLORE");
   });
 });

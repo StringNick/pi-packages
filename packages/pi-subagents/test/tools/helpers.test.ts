@@ -15,11 +15,13 @@ function makeRegistry(opts: {
     toolGuideline?: string;
   };
 }): TypeListRegistry {
+  const resolveConfig = (name: string) =>
+    ({ name, ...opts.resolve?.(name) ?? { description: "", model: undefined } }) as ReturnType<TypeListRegistry["resolveAgentConfig"]>;
   return {
     getDefaultAgentNames: () => opts.defaults ?? [],
     getUserAgentNames: () => opts.users ?? [],
-    resolveAgentConfig: (name: string) =>
-      ({ ...opts.resolve?.(name) ?? { description: "", model: undefined } }) as ReturnType<TypeListRegistry["resolveAgentConfig"]>,
+    findAgentConfig: (name: string) => resolveConfig(name),
+    resolveAgentConfig: (name: string) => resolveConfig(name),
     getToolNamesForType: () => [],
   };
 }
@@ -35,9 +37,9 @@ describe("textResult", () => {
 
   it("includes details when provided", () => {
     const details: AgentDetails = {
-      displayName: "Agent",
+      displayName: "worker",
       description: "",
-      subagentType: "general-purpose",
+      subagentType: "worker",
       toolUses: 0,
       tokens: "",
       durationMs: 0,
@@ -90,20 +92,20 @@ describe("getModelLabelFromConfig", () => {
 describe("buildTypeListText", () => {
   it("lists default agents with their descriptions", () => {
     const registry = makeRegistry({
-      defaults: ["general-purpose"],
-      resolve: () => ({ description: "General purpose agent", model: undefined }),
+      defaults: ["worker"],
+      resolve: () => ({ description: "Implementation worker", model: undefined }),
     });
     const result = buildTypeListText(registry, "/home/.pi");
-    expect(result).toContain("- general-purpose: General purpose agent");
+    expect(result).toContain("- worker: Implementation worker");
   });
 
   it("includes model suffix for default agents that have a model set", () => {
     const registry = makeRegistry({
-      defaults: ["Explore"],
+      defaults: ["explore"],
       resolve: () => ({ description: "Fast explorer", model: "anthropic/claude-haiku-4-5" }),
     });
     const result = buildTypeListText(registry, "/home/.pi");
-    expect(result).toContain("- Explore: Fast explorer (claude-haiku-4-5)");
+    expect(result).toContain("- explore: Fast explorer (claude-haiku-4-5)");
   });
 
   it("includes agentDir in the trailing hint line", () => {
@@ -114,10 +116,10 @@ describe("buildTypeListText", () => {
 
   it("adds Custom agents section when user agents are present", () => {
     const registry = makeRegistry({
-      defaults: ["general-purpose"],
+      defaults: ["worker"],
       users: ["my-agent"],
       resolve: (name) =>
-        name === "general-purpose"
+        name === "worker"
           ? { description: "General purpose", model: undefined }
           : { description: "My custom agent", model: undefined },
     });
@@ -128,20 +130,20 @@ describe("buildTypeListText", () => {
 
   it("excludes disabled agents from the default agents list", () => {
     const registry = makeRegistry({
-      defaults: ["general-purpose", "Plan"],
+      defaults: ["worker", "explore"],
       resolve: (name) =>
-        name === "Plan"
-          ? { description: "Planning agent", model: undefined, enabled: false }
-          : { description: "General purpose agent", model: undefined },
+        name === "explore"
+          ? { description: "Fast explorer", model: undefined, enabled: false }
+          : { description: "Implementation worker", model: undefined },
     });
     const result = buildTypeListText(registry, "/home/.pi");
-    expect(result).toContain("- general-purpose: General purpose agent");
-    expect(result).not.toContain("Plan");
+    expect(result).toContain("- worker: Implementation worker");
+    expect(result).not.toContain("- explore:");
   });
 
   it("excludes disabled agents from the custom agents list", () => {
     const registry = makeRegistry({
-      defaults: ["general-purpose"],
+      defaults: ["worker"],
       users: ["my-agent", "disabled-custom"],
       resolve: (name) =>
         name === "disabled-custom"
@@ -155,7 +157,7 @@ describe("buildTypeListText", () => {
 
   it("omits Custom agents section when no user agents exist", () => {
     const registry = makeRegistry({
-      defaults: ["general-purpose"],
+      defaults: ["worker"],
       resolve: () => ({ description: "General purpose", model: undefined }),
     });
     const result = buildTypeListText(registry, "/home/.pi");
@@ -173,50 +175,50 @@ describe("buildTypeListText", () => {
 });
 
 describe("buildAgentGuidelines", () => {
-  it("returns the enabled default agents' guideline lines in registry order", () => {
+  it("labels the enabled default agents' routing guidance in catalog order", () => {
     const registry = makeRegistry({
-      defaults: ["general-purpose", "Explore", "Plan"],
+      defaults: ["worker", "explore", "reviewer"],
       resolve: (name) => ({
         description: `${name} agent`,
         model: undefined,
-        toolGuideline: `- Use ${name} for stuff.`,
+        toolGuideline: `Use ${name} for stuff.`,
       }),
     });
     expect(buildAgentGuidelines(registry)).toEqual([
-      "- Use general-purpose for stuff.",
-      "- Use Explore for stuff.",
-      "- Use Plan for stuff.",
+      "- worker: Use worker for stuff.",
+      "- explore: Use explore for stuff.",
+      "- reviewer: Use reviewer for stuff.",
     ]);
   });
 
   it("omits a disabled default agent's guideline line", () => {
     const registry = makeRegistry({
-      defaults: ["general-purpose", "Explore"],
+      defaults: ["worker", "explore"],
       resolve: (name) => ({
         description: `${name} agent`,
         model: undefined,
-        enabled: name === "Explore" ? false : undefined,
-        toolGuideline: `- Use ${name} for stuff.`,
+        enabled: name === "explore" ? false : undefined,
+        toolGuideline: `Use ${name} for stuff.`,
       }),
     });
-    expect(buildAgentGuidelines(registry)).toEqual(["- Use general-purpose for stuff."]);
+    expect(buildAgentGuidelines(registry)).toEqual(["- worker: Use worker for stuff."]);
   });
 
   it("omits default agents that declare no guideline", () => {
     const registry = makeRegistry({
-      defaults: ["general-purpose", "custom-default"],
+      defaults: ["worker", "custom-default"],
       resolve: (name) => ({
         description: `${name} agent`,
         model: undefined,
-        toolGuideline: name === "general-purpose" ? "- Use general-purpose for stuff." : undefined,
+        toolGuideline: name === "worker" ? "Use worker for stuff." : undefined,
       }),
     });
-    expect(buildAgentGuidelines(registry)).toEqual(["- Use general-purpose for stuff."]);
+    expect(buildAgentGuidelines(registry)).toEqual(["- worker: Use worker for stuff."]);
   });
 
   it("returns an empty array when all default agents are disabled", () => {
     const registry = makeRegistry({
-      defaults: ["general-purpose", "Explore"],
+      defaults: ["worker", "explore"],
       resolve: (name) => ({
         description: `${name} agent`,
         model: undefined,
@@ -226,13 +228,45 @@ describe("buildAgentGuidelines", () => {
     });
     expect(buildAgentGuidelines(registry)).toEqual([]);
   });
+
+  it("includes custom and overridden agents, skipping disabled or blank guidelines", () => {
+    const registry = makeRegistry({
+      defaults: ["worker"],
+      users: ["explore", "auditor", "disabled", "blank", "missing"],
+      resolve: (name) => ({
+        description: `${name} agent`,
+        model: undefined,
+        enabled: name !== "disabled",
+        toolGuideline: name === "blank" ? " \n " : name === "missing" ? undefined : `Use ${name}.`,
+      }),
+    });
+    expect(buildAgentGuidelines(registry)).toEqual([
+      "- worker: Use worker.",
+      "- explore: Use explore.",
+      "- auditor: Use auditor.",
+    ]);
+  });
+
+  it("keeps multiline guidance attached to its named role", () => {
+    const registry = makeRegistry({
+      users: ["auditor"],
+      resolve: () => ({
+        description: "Security review",
+        model: undefined,
+        toolGuideline: "  Check security boundaries.\nAvoid routine changes.  ",
+      }),
+    });
+    expect(buildAgentGuidelines(registry)).toEqual([
+      "- auditor: Check security boundaries.\n  Avoid routine changes.",
+    ]);
+  });
 });
 
 describe("buildDetails", () => {
   const base = {
     displayName: "TestAgent",
     description: "does stuff",
-    subagentType: "general-purpose",
+    subagentType: "worker",
     modelName: undefined,
     tags: undefined,
   };

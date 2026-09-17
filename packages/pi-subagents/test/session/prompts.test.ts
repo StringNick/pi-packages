@@ -31,8 +31,21 @@ function getDefaultConfig(name: string): AgentConfig {
 }
 
 describe("buildAgentPrompt", () => {
+  it("keeps parent routing guidance out of the child's role instructions", () => {
+    const config: AgentConfig = {
+      name: "auditor",
+      description: "Security reviewer",
+      promptMode: "replace",
+      systemPrompt: "Inspect the assigned diff.",
+      toolGuideline: "Parent-only routing sentinel.",
+    };
+    const prompt = buildAgentPrompt(config, "/workspace", env);
+    expect(prompt).toContain("Inspect the assigned diff.");
+    expect(prompt).not.toContain("Parent-only routing sentinel.");
+  });
+
   it("includes cwd and git info", () => {
-    const config = getDefaultConfig("general-purpose");
+    const config = getDefaultConfig("worker");
     const prompt = buildAgentPrompt(config, "/workspace", env);
     expect(prompt).toContain("/workspace");
     expect(prompt).toContain("Branch: main");
@@ -40,28 +53,36 @@ describe("buildAgentPrompt", () => {
   });
 
   it("handles non-git repos", () => {
-    const config = getDefaultConfig("Explore");
+    const config = getDefaultConfig("explore");
     const prompt = buildAgentPrompt(config, "/workspace", envNoGit);
     expect(prompt).toContain("Not a git repository");
     expect(prompt).not.toContain("Branch:");
   });
 
-  it("Explore prompt is read-only", () => {
-    const config = getDefaultConfig("Explore");
+  it("explore prompt is read-only", () => {
+    const config = getDefaultConfig("explore");
     const prompt = buildAgentPrompt(config, "/workspace", env);
     expect(prompt).toContain("READ-ONLY");
     expect(prompt).toContain("file search specialist");
   });
 
-  it("Plan prompt is read-only", () => {
-    const config = getDefaultConfig("Plan");
+  it.each(["reviewer", "oracle"])("%s prompt is read-only", (name) => {
+    const config = getDefaultConfig(name);
     const prompt = buildAgentPrompt(config, "/workspace", env);
     expect(prompt).toContain("READ-ONLY");
-    expect(prompt).toContain("software architect");
+    expect(prompt).toContain(config.systemPrompt);
   });
 
-  it("general-purpose uses append mode (parent twin)", () => {
-    const config = getDefaultConfig("general-purpose");
+  it("custom twin uses append mode (parent twin)", () => {
+    const config: AgentConfig = {
+      name: "twin",
+      description: "Custom twin",
+      toolNames: [],
+      systemPrompt: "",
+      promptMode: "append",
+      inheritContext: false,
+      runInBackground: false,
+    };
     const parentPrompt = "You are a parent coding agent with full powers.";
     const prompt = buildAgentPrompt(config, "/workspace", env, {
       systemPrompt: parentPrompt,
@@ -75,8 +96,8 @@ describe("buildAgentPrompt", () => {
     expect(prompt).not.toContain("<agent_instructions>");
   });
 
-  it("general-purpose without parent prompt falls back to generic base", () => {
-    const config = getDefaultConfig("general-purpose");
+  it("worker without parent prompt falls back to generic base", () => {
+    const config = getDefaultConfig("worker");
     const prompt = buildAgentPrompt(config, "/workspace", env);
     expect(prompt).toContain("general-purpose coding agent");
     expect(prompt).not.toContain("READ-ONLY");
@@ -231,7 +252,15 @@ describe("buildAgentPrompt", () => {
   // equivalent `promptGuidelines`, rendered per session for the tools the
   // child actually has.
   it("append mode contributes no tool reminders of its own", () => {
-    const config = getDefaultConfig("general-purpose");
+    const config: AgentConfig = {
+      name: "twin",
+      description: "Custom twin",
+      toolNames: [],
+      systemPrompt: "",
+      promptMode: "append",
+      inheritContext: false,
+      runInBackground: false,
+    };
     const prompt = buildAgentPrompt(config, "/workspace", env, {
       systemPrompt: "Parent prompt.",
       cwd: PARENT_CWD,
@@ -264,8 +293,8 @@ describe("buildAgentPrompt", () => {
   describe("active_agent tag injection", () => {
     it("includes <active_agent name=...> tag in replace mode after identity prefix", () => {
       const config: AgentConfig = {
-        name: "Explore",
-        description: "Explore",
+        name: "explore",
+        description: "explore",
         toolNames: [],
         systemPrompt: "You are an explorer.",
         promptMode: "replace",
@@ -281,14 +310,14 @@ describe("buildAgentPrompt", () => {
         { systemPrompt: "Parent identity prefix.", cwd: PARENT_CWD },
       );
       const idxIdentity = prompt.indexOf("Parent identity prefix.");
-      const idxTag = prompt.indexOf('<active_agent name="Explore"/>');
+      const idxTag = prompt.indexOf('<active_agent name="explore"/>');
       expect(idxTag).toBeGreaterThan(-1);
       expect(idxTag).toBeGreaterThan(idxIdentity);
     });
 
     it("includes <active_agent name=...> tag in append mode after the identity", () => {
       const config: AgentConfig = {
-        name: "general-purpose",
+        name: "worker",
         description: "Twin",
         toolNames: [],
         systemPrompt: "",
@@ -302,7 +331,7 @@ describe("buildAgentPrompt", () => {
         env,
         { systemPrompt: "Parent prompt content.", cwd: PARENT_CWD },
       );
-      const tagIdx = prompt.indexOf('<active_agent name="general-purpose"/>');
+      const tagIdx = prompt.indexOf('<active_agent name="worker"/>');
       const identityIdx = prompt.indexOf("Parent prompt content.");
       expect(tagIdx).toBeGreaterThan(-1);
       expect(identityIdx).toBeGreaterThan(-1);

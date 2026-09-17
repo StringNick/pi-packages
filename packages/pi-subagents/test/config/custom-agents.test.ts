@@ -2,8 +2,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BUILTIN_TOOL_NAMES } from "#src/config/agent-types";
+import { AgentTypeRegistry, BUILTIN_TOOL_NAMES } from "#src/config/agent-types";
 import { loadCustomAgents } from "#src/config/custom-agents";
+import { buildAgentGuidelines } from "#src/tools/helpers";
 
 describe("loadCustomAgents", () => {
   let tmpDir: string;
@@ -35,6 +36,7 @@ describe("loadCustomAgents", () => {
   it("loads a basic agent with all frontmatter fields", () => {
     writeAgent("auditor", `---
 description: Security Auditor
+tool_guideline: Use for security-sensitive changes; avoid general implementation.
 tools: read, grep, find
 model: anthropic/claude-opus-4-6
 thinking: high
@@ -52,6 +54,7 @@ You are a security auditor.`);
     const agent = result.get("auditor")!;
     expect(agent.name).toBe("auditor");
     expect(agent.description).toBe("Security Auditor");
+    expect(agent.toolGuideline).toBe("Use for security-sensitive changes; avoid general implementation.");
     expect(agent.toolNames).toEqual(["read", "grep", "find"]);
     expect(agent.model).toBe("anthropic/claude-opus-4-6");
     expect(agent.thinking).toBe("high");
@@ -60,6 +63,43 @@ You are a security auditor.`);
     expect(agent.inheritContext).toBe(true);
     expect(agent.runInBackground).toBe(true);
     expect(agent.systemPrompt).toBe("You are a security auditor.");
+  });
+
+  describe("parent routing guidance", () => {
+    it("loads multiline guidance for a custom role without including the child prompt", () => {
+      writeAgent("auditor", `---
+description: Security reviewer
+tool_guideline: |
+  Inspect security boundaries.
+  Avoid routine refactoring.
+---
+Private child instructions.`);
+      const registry = new AgentTypeRegistry(() => loadCustomAgents(tmpDir, { includeProject: true }));
+      expect(registry.resolveAgentConfig("auditor").toolGuideline).toBe(
+        "Inspect security boundaries.\nAvoid routine refactoring.",
+      );
+      expect(buildAgentGuidelines(registry)).toContain(
+        "- auditor: Inspect security boundaries.\n  Avoid routine refactoring.",
+      );
+      expect(buildAgentGuidelines(registry).join("\n")).not.toContain("Private child instructions.");
+    });
+
+    it("uses project override guidance and drops it when the role is disabled", () => {
+      writeAgent("worker", "---\ntool_guideline: Only update docs.\n---\nWrite documentation.");
+      const registry = new AgentTypeRegistry(() => loadCustomAgents(tmpDir));
+      expect(buildAgentGuidelines(registry).filter((line) => line.startsWith("- worker:"))).toEqual([
+        "- worker: Only update docs.",
+      ]);
+      writeAgent("worker", "---\ntool_guideline: Only update docs.\nenabled: false\n---\nWrite documentation.");
+      registry.reload();
+      expect(buildAgentGuidelines(registry).some((line) => line.startsWith("- worker:"))).toBe(false);
+    });
+
+    it.each(["null", "true", "42", "[]", '""', '"   "'])("omits empty or non-text guidance: %s", (value) => {
+      writeAgent("auditor", `---\ntool_guideline: ${value}\n---\nReview.`);
+      const registry = new AgentTypeRegistry(() => loadCustomAgents(tmpDir));
+      expect(buildAgentGuidelines(registry).some((line) => line.startsWith("- auditor:"))).toBe(false);
+    });
   });
 
   it("uses sensible defaults when frontmatter is empty", () => {
@@ -350,7 +390,7 @@ Real.`);
   });
 
   it("allows agents with names matching defaults (overrides them)", () => {
-    writeAgent("Explore", `---
+    writeAgent("explore", `---
 description: Custom Explore
 ---
 
@@ -362,9 +402,72 @@ description: Custom Agent
 Should be loaded.`);
 
     const result = loadCustomAgents(tmpDir);
-    expect(result.has("Explore")).toBe(true);
-    expect(result.get("Explore")!.description).toBe("Custom Explore");
+    expect(result.has("explore")).toBe(true);
+    expect(result.get("explore")!.description).toBe("Custom Explore");
     expect(result.has("custom")).toBe(true);
+  });
+
+  describe("builtin canonicalization", () => {
+    it("maps a legacy Explore.md onto canonical explore instead of duplicating it", () => {
+      writeAgent("Explore", `---
+description: Custom Explore
+---
+
+Custom explore agent.`);
+
+      const result = loadCustomAgents(tmpDir);
+      expect(result.has("explore")).toBe(true);
+      expect(result.has("Explore")).toBe(false);
+      expect(result.get("explore")!.name).toBe("explore");
+      expect(result.get("explore")!.description).toBe("Custom Explore");
+      expect(result.get("explore")!.sourcePath).toBe(join(tmpDir, ".pi", "agents", "Explore.md"));
+    });
+
+    it("canonicalizes regardless of case", () => {
+      writeAgent("WORKER", `---
+description: Custom Worker
+---
+
+Custom worker agent.`);
+
+      const result = loadCustomAgents(tmpDir);
+      expect(result.has("worker")).toBe(true);
+      expect(result.has("WORKER")).toBe(false);
+      expect(result.get("worker")!.name).toBe("worker");
+    });
+
+    it("keeps retired names as ordinary custom agents with file casing", () => {
+      writeAgent("Plan", `---
+description: Custom Planner
+---
+
+Custom plan agent.`);
+      writeAgent("general-purpose", `---
+description: Legacy fallback
+---
+
+Legacy fallback agent.`);
+
+      const result = loadCustomAgents(tmpDir);
+      expect(result.get("Plan")!.name).toBe("Plan");
+      expect(result.get("Plan")!.description).toBe("Custom Planner");
+      expect(result.get("general-purpose")!.name).toBe("general-purpose");
+    });
+
+    it("overlays the canonical builtin in the registry without a duplicate", () => {
+      writeAgent("Explore", `---
+description: Custom Explore
+---
+
+Custom explore agent.`);
+
+      const registry = new AgentTypeRegistry(() => loadCustomAgents(tmpDir));
+      expect(registry.resolveType("Explore")).toBe("explore");
+      expect(registry.resolveAgentConfig("explore").description).toBe("Custom Explore");
+      expect(registry.getAvailableTypes().filter((name) => name.toLowerCase() === "explore")).toEqual([
+        "explore",
+      ]);
+    });
   });
 
   it("handles empty body with frontmatter", () => {

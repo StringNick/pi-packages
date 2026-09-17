@@ -17,7 +17,7 @@ const testRegistry = new AgentTypeRegistry(() => new Map());
 function makeAgent(overrides: Partial<WidgetAgent> = {}): WidgetAgent {
 	return {
 		id: "agent-1",
-		type: "general-purpose",
+		type: "worker",
 		status: "completed",
 		description: "test task",
 		toolUses: 5,
@@ -43,8 +43,8 @@ describe("renderFinishedLine", () => {
 
 		// Success icon
 		expect(line).toContain("[success:✓]");
-		// Display name (general-purpose type displayName → "Agent"; tool name is now "subagent")
-		expect(line).toContain("[dim:Agent]");
+		// Display name (worker type displayName → "worker"; tool name is now "subagent")
+		expect(line).toContain("[dim:worker]");
 		// Description
 		expect(line).toContain("[dim:test task]");
 		// Tool uses
@@ -156,7 +156,7 @@ describe("renderRunningLines", () => {
 
 		// Header contains spinner frame, bold name, description
 		expect(header).toContain("[accent:⠋]");
-		expect(header).toContain("**Agent**");
+		expect(header).toContain("**worker**");
 		expect(header).toContain("[muted:test task]");
 		// Stats: turn count
 		expect(header).toContain("↻2≤10");
@@ -234,7 +234,7 @@ describe("renderWidgetLines", () => {
 		expect(lines[0]).toContain("Agents");
 		// Header line with └─ (last item uses └─ not ├─)
 		expect(lines[1]).toContain("└─");
-		expect(lines[1]).toContain("**Agent**");
+		expect(lines[1]).toContain("**worker**");
 		// Activity line — uses space indent (not │) since it's the last agent
 		expect(lines[2]).not.toContain("│");
 		expect(lines[2]).toContain("⎿");
@@ -262,7 +262,7 @@ describe("renderWidgetLines", () => {
 		// finished line (1 line)
 		expect(lines[1]).toContain("[success:\u2713]");
 		// running header (1 line) + activity (1 line)
-		expect(lines[2]).toContain("**Agent**");
+		expect(lines[2]).toContain("**worker**");
 		expect(lines[3]).toContain("\u23bf");
 		// queued line (last item, uses \u2514\u2500)
 		expect(lines[4]).toContain("\u2514\u2500");

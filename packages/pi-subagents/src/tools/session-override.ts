@@ -77,8 +77,9 @@ function resolveSessionOverride(
     if (!host) return undefined;
     const canonical =
       typeof rawType === "string"
-        ? (registry.resolveType(rawType) ?? "general-purpose")
-        : "general-purpose";
+        ? registry.resolveType(rawType)
+        : undefined;
+    if (canonical === undefined) return undefined;
     // Keep the receiver for stateful hosts. Native spawn-config, not this
     // optional lookup, owns validation of a nonblank explicit selection.
     const value = host[hook]?.(canonical)?.trim();

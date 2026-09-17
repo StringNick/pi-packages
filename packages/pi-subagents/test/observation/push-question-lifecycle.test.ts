@@ -34,7 +34,7 @@ describe("push questions after actual child settlement", () => {
       factory.mock.calls[0][0].askParent?.("Which branch?");
       return { responseText: "Need clarification.", aborted: false, steered: false };
     });
-    const id = manager.spawn(STUB_SNAPSHOT, "general-purpose", "investigate", {
+    const id = manager.spawn(STUB_SNAPSHOT, "worker", "investigate", {
       description: "Question child",
       background: { kind: "explicit", isBackground: true },
     });

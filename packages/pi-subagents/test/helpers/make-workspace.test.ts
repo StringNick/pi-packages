@@ -28,19 +28,19 @@ describe("makeWorkspaceProvider", () => {
 	it("prepares the workspace it was built with", async () => {
 		const workspace = makeWorkspace("/ws/dir");
 		const provider = makeWorkspaceProvider(workspace);
-		await expect(provider.prepare({ agentId: "a", agentType: "general-purpose", baseCwd: "/p" }))
+		await expect(provider.prepare({ agentId: "a", agentType: "worker", baseCwd: "/p" }))
 			.resolves.toBe(workspace);
 	});
 
 	it("prepares to undefined for a provider that declines the agent type", async () => {
 		const provider = makeWorkspaceProvider(undefined);
-		await expect(provider.prepare({ agentId: "a", agentType: "general-purpose", baseCwd: "/p" }))
+		await expect(provider.prepare({ agentId: "a", agentType: "worker", baseCwd: "/p" }))
 			.resolves.toBeUndefined();
 	});
 
 	it("records the prepare context", async () => {
 		const provider = makeWorkspaceProvider(makeWorkspace("/ws/dir"));
-		const ctx = { agentId: "a", agentType: "general-purpose" as const, baseCwd: "/p" };
+		const ctx = { agentId: "a", agentType: "worker" as const, baseCwd: "/p" };
 		await provider.prepare(ctx);
 		expect(provider.prepare).toHaveBeenCalledWith(ctx);
 	});

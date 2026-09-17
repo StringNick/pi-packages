@@ -15,7 +15,7 @@ describe("toSubagentRecord", () => {
   const baseRecord = (() => {
     const r = createTestSubagent({
       id: "abc-123",
-      type: "Explore",
+      type: "explore",
       description: "Check stale TODOs",
       result: "Found 3 stale TODOs",
       toolUses: 5,
@@ -29,7 +29,7 @@ describe("toSubagentRecord", () => {
     const result = toSubagentRecord(baseRecord);
     expect(result).toEqual({
       id: "abc-123",
-      type: "Explore",
+      type: "explore",
       description: "Check stale TODOs",
       status: "completed",
       isBackground: true,
@@ -111,7 +111,7 @@ describe("toSubagentRecord", () => {
     const state = new SubagentState({ lifetimeUsage: { input: 100, output: 200, cacheWrite: 50 } });
     const agent = new Subagent({
       id: "usage-1",
-      type: "Explore",
+      type: "explore",
       description: "Check stale TODOs",
       isBackground: true,
       execution: makeStubExecution(),
@@ -148,7 +148,7 @@ describe("toSubagentRecord", () => {
     const result = toSubagentRecord(minimal);
     expect(result).toEqual({
       id: "min-1",
-      type: "general-purpose",
+      type: "worker",
       description: "test",
       status: "running",
       isBackground: true,
@@ -224,7 +224,7 @@ function createManagerStub() {
 describe("SubagentsServiceAdapter — getRecord and listAgents", () => {
   const recordA = createTestSubagent({
     id: "a-1",
-    type: "Explore",
+    type: "explore",
     description: "task A",
     lifetimeUsage: { input: 10, output: 20, cacheWrite: 5 },
   });
@@ -285,7 +285,7 @@ describe("SubagentsServiceAdapter — spawn", () => {
       vi.fn(),
       makeRuntimeStub({ currentCtx: undefined }),
     );
-    expect(() => svc.spawn("Explore", "do something")).toThrow(
+    expect(() => svc.spawn("explore", "do something")).toThrow(
       /no active session/i,
     );
   });
@@ -298,7 +298,7 @@ describe("SubagentsServiceAdapter — spawn", () => {
       resolveModel,
       makeRuntimeStub({ currentCtx: { ...makeStubCtx(), modelRegistry: registry } }),
     );
-    svc.spawn("Explore", "check TODOs", { model: "haiku" });
+    svc.spawn("explore", "check TODOs", { model: "haiku" });
     expect(resolveModel).toHaveBeenCalledWith("haiku", registry);
   });
 
@@ -308,7 +308,7 @@ describe("SubagentsServiceAdapter — spawn", () => {
       () => 'Model not found: "bad-model".\n\nAvailable models:\n  anthropic/claude-sonnet',
       makeRuntimeStub(),
     );
-    expect(() => svc.spawn("Explore", "task", { model: "bad-model" })).toThrow(
+    expect(() => svc.spawn("explore", "task", { model: "bad-model" })).toThrow(
       /Model not found/,
     );
   });
@@ -317,7 +317,7 @@ describe("SubagentsServiceAdapter — spawn", () => {
     it("throws for an unrecognized level rather than letting the SDK clamp it to off", () => {
       const svc = new SubagentsServiceAdapter(createManagerStub(), vi.fn(), makeRuntimeStub());
 
-      expect(() => svc.spawn("Explore", "task", { thinkingLevel: "turbo" })).toThrow(
+      expect(() => svc.spawn("explore", "task", { thinkingLevel: "turbo" })).toThrow(
         'Invalid thinking level "turbo". Valid levels: off, minimal, low, medium, high, xhigh, max.',
       );
     });
@@ -326,11 +326,11 @@ describe("SubagentsServiceAdapter — spawn", () => {
       const mgr = createManagerStub();
       const svc = new SubagentsServiceAdapter(mgr, vi.fn(), makeRuntimeStub());
 
-      svc.spawn("Explore", "task", { thinkingLevel: "xhigh" });
+      svc.spawn("explore", "task", { thinkingLevel: "xhigh" });
 
       expect(mgr.spawn).toHaveBeenCalledWith(
         expect.anything(),
-        "Explore",
+        "explore",
         "task",
         expect.objectContaining({ thinkingLevel: "xhigh" }),
       );
@@ -340,11 +340,11 @@ describe("SubagentsServiceAdapter — spawn", () => {
       const mgr = createManagerStub();
       const svc = new SubagentsServiceAdapter(mgr, vi.fn(), makeRuntimeStub());
 
-      svc.spawn("Explore", "task");
+      svc.spawn("explore", "task");
 
       expect(mgr.spawn).toHaveBeenCalledWith(
         expect.anything(),
-        "Explore",
+        "explore",
         "task",
         expect.objectContaining({ thinkingLevel: undefined }),
       );
@@ -359,11 +359,11 @@ describe("SubagentsServiceAdapter — spawn", () => {
       () => resolvedModel,
       makeRuntimeStub(),
     );
-    const id = svc.spawn("Explore", "check TODOs", { model: "sonnet", maxTurns: 5 });
+    const id = svc.spawn("explore", "check TODOs", { model: "sonnet", maxTurns: 5 });
     expect(id).toBe("spawned-id");
     expect(mgr.spawn).toHaveBeenCalledWith(
       expect.anything(), // snapshot
-      "Explore",
+      "explore",
       "check TODOs",
       expect.objectContaining({
         model: resolvedModel,
@@ -383,11 +383,11 @@ describe("SubagentsServiceAdapter — spawn", () => {
       const mgr = createManagerStub();
       const svc = new SubagentsServiceAdapter(mgr, vi.fn(), makeRuntimeStub());
 
-      svc.spawn("Explore", "check TODOs");
+      svc.spawn("explore", "check TODOs");
 
       expect(mgr.spawn).toHaveBeenCalledWith(
         expect.anything(), // snapshot
-        "Explore",
+        "explore",
         "check TODOs",
         expect.objectContaining({
           parentSession: {
@@ -452,10 +452,10 @@ describe("SubagentsServiceAdapter — spawn", () => {
     const mgr = createManagerStub();
     const svc = new SubagentsServiceAdapter(mgr, vi.fn(), makeRuntimeStub());
     const longPrompt = "x".repeat(200);
-    svc.spawn("Explore", longPrompt);
+    svc.spawn("explore", longPrompt);
     expect(mgr.spawn).toHaveBeenCalledWith(
       expect.anything(), // snapshot
-      "Explore",
+      "explore",
       longPrompt,
       expect.objectContaining({ description: "x".repeat(80) }),
     );
@@ -464,10 +464,10 @@ describe("SubagentsServiceAdapter — spawn", () => {
   it("uses provided description over default", () => {
     const mgr = createManagerStub();
     const svc = new SubagentsServiceAdapter(mgr, vi.fn(), makeRuntimeStub());
-    svc.spawn("Explore", "long prompt here", { description: "short desc" });
+    svc.spawn("explore", "long prompt here", { description: "short desc" });
     expect(mgr.spawn).toHaveBeenCalledWith(
       expect.anything(), // snapshot
-      "Explore",
+      "explore",
       "long prompt here",
       expect.objectContaining({ description: "short desc" }),
     );
@@ -476,7 +476,7 @@ describe("SubagentsServiceAdapter — spawn", () => {
   it("does not call resolveModel when no model option is provided", () => {
     const resolveModel = vi.fn();
     const svc = new SubagentsServiceAdapter(createManagerStub(), resolveModel, makeRuntimeStub());
-    svc.spawn("Explore", "quick check");
+    svc.spawn("explore", "quick check");
     expect(resolveModel).not.toHaveBeenCalled();
   });
 });
@@ -597,7 +597,7 @@ describe("SubagentsServiceAdapter — resume", () => {
     const mgr = createManagerStub();
     const record = createTestSubagent({
       id: "a-1",
-      type: "Explore",
+      type: "explore",
       description: "task A",
       result: "Resumed output.",
       toolUses: 5,
@@ -609,7 +609,7 @@ describe("SubagentsServiceAdapter — resume", () => {
       kind: "resumed",
       record: {
         id: "a-1",
-        type: "Explore",
+        type: "explore",
         description: "task A",
         status: "completed",
         isBackground: true,

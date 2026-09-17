@@ -238,7 +238,7 @@ describe("SessionNavigatorHandler", () => {
     const [label] = (() => {
       // The handler labels entries identically to listNavigableAgents.
       return [
-        "Agent (Test task) · 2 tools · completed · 3.0s",
+        "worker (Test task) · 2 tools · completed · 3.0s",
       ];
     })();
     const ui = makeUI(label);
@@ -257,7 +257,7 @@ describe("SessionNavigatorHandler", () => {
   it("mounts the transcript outside Pi's overlay compositor", async () => {
     // Regular-mode overlays are composited into the buffer that backs scrollback,
     // so an overlay mount bakes the pane's chrome into terminal history (#733).
-    const ui = makeUI("Agent (Test task) · 2 tools · completed · 3.0s");
+    const ui = makeUI("worker (Test task) · 2 tools · completed · 3.0s");
 
     await new SessionNavigatorHandler().handle({
       ui,
@@ -282,7 +282,7 @@ describe("SessionNavigatorHandler", () => {
       id: "e1", description: "Old task", status: "completed", startedAt: 1000, completedAt: 4000, toolUses: 5,
       isSessionReady: () => false, outputFile: "/tasks/e1.jsonl",
     });
-    const ui = makeUI("Agent (Old task) · 5 tools · completed · 3.0s · session released (snapshot)");
+    const ui = makeUI("worker (Old task) · 5 tools · completed · 3.0s · session released (snapshot)");
 
     await new SessionNavigatorHandler().handle({ ui, agents: [released], registry, cwd: "/test/cwd", readFile });
 
@@ -299,7 +299,7 @@ describe("SessionNavigatorHandler", () => {
       id: "e1", description: "Old task", status: "completed", startedAt: 1000, completedAt: 4000, toolUses: 5,
       isSessionReady: () => false, outputFile: "/tasks/e1.jsonl",
     });
-    const ui = makeUI("Agent (Old task) · 5 tools · completed · 3.0s · session released (snapshot)");
+    const ui = makeUI("worker (Old task) · 5 tools · completed · 3.0s · session released (snapshot)");
 
     await new SessionNavigatorHandler().handle({ ui, agents: [released], registry, cwd: "/test/cwd", readFile });
 

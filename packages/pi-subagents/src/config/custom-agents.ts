@@ -6,6 +6,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { BUILTIN_TOOL_NAMES } from "#src/config/agent-types";
+import { DEFAULT_AGENT_NAMES } from "#src/config/default-agents";
 import { isLockableField, type LockDeclaration } from "#src/config/invocation-config";
 import { parseThinkingLevel, thinkingLevelError } from "#src/config/thinking-level";
 import { debugLog } from "#src/debug";
@@ -18,7 +19,9 @@ import type { AgentConfig } from "#src/types";
  *   2. Global:  $PI_CODING_AGENT_DIR/agents/*.md (default: ~/.pi/agent/agents/*.md)
  *
  * Project-level agents override global ones with the same name.
- * Any name is allowed — names matching defaults (e.g. "Explore") override them.
+ * Any name is allowed — a file matching a builtin case-insensitively (e.g. a
+ * legacy Explore.md) overrides the canonical builtin (see `canonicalBuiltinName`);
+ * other names (e.g. Plan, general-purpose) load as ordinary custom agents.
  */
 export interface LoadCustomAgentsOptions {
   agentDir?: string;
@@ -59,7 +62,7 @@ function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source: "pro
   }
 
   for (const file of files) {
-    const name = basename(file, ".md");
+    const name = canonicalBuiltinName(basename(file, ".md"));
     const path = join(dir, file);
 
     if (options.maxFileBytes !== undefined) {
@@ -102,6 +105,7 @@ function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source: "pro
       name,
       displayName: str(fm.display_name),
       description: str(fm.description) ?? name,
+      toolGuideline: str(fm.tool_guideline)?.trim() || undefined,
       toolNames: listField(fm.tools, BUILTIN_TOOL_NAMES),
       model: str(fm.model),
       thinking: thinkingLevel(fm.thinking, name),
@@ -113,8 +117,25 @@ function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source: "pro
       locked: lockDeclaration(fm.locked, name),
       enabled: fm.enabled !== false,  // default true; explicitly false disables
       source,
+      sourcePath: path,
     });
   }
+}
+
+/**
+ * Canonicalize a file-derived agent name against the builtins.
+ *
+ * Builtin names are exact lowercase; a file matching one case-insensitively
+ * (e.g. a legacy Explore.md) takes the canonical builtin name so it overrides
+ * the builtin instead of registering a duplicate alongside it. Names with no
+ * builtin match keep their file casing and load as ordinary custom agents.
+ */
+function canonicalBuiltinName(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  for (const builtin of DEFAULT_AGENT_NAMES) {
+    if (builtin.toLowerCase() === lower) return builtin;
+  }
+  return fileName;
 }
 
 // ---- Field parsers ----

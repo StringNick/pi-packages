@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 const launchParams = Object.freeze({
-  subagent_type: "general-purpose",
+  subagent_type: "worker",
   prompt: "Do the work",
   description: "Do work",
 });
@@ -25,8 +25,8 @@ function makeStandaloneTool() {
 
 function makeHostedTool(exposeCallerMaxTurns: boolean | undefined, agentMaxTurns?: number, defaultMaxTurns?: number) {
   const registry = new AgentTypeRegistry(() => new Map(agentMaxTurns === undefined ? [] : [
-    ["general-purpose", {
-      name: "general-purpose", description: "Agent with a limit", systemPrompt: "",
+    ["worker", {
+      name: "worker", description: "Agent with a limit", systemPrompt: "",
       promptMode: "append", maxTurns: agentMaxTurns, locked: ["max_turns"],
     }],
   ]));
@@ -69,7 +69,7 @@ describe("AgentTool caller max_turns surface", () => {
     const spawn = background ? manager.spawn : manager.spawnAndWait;
     expect(spawn).toHaveBeenCalledExactlyOnceWith(
       expect.anything(),
-      "general-purpose",
+      "worker",
       launchParams.prompt,
       expect.objectContaining({ maxTurns: undefined }),
     );
@@ -87,7 +87,7 @@ describe("AgentTool caller max_turns surface", () => {
     const spawn = background ? manager.spawn : manager.spawnAndWait;
     expect(spawn).toHaveBeenCalledExactlyOnceWith(
       expect.anything(),
-      "general-purpose",
+      "worker",
       launchParams.prompt,
       expect.objectContaining({ maxTurns: 5 }),
     );
@@ -98,7 +98,7 @@ describe("AgentTool caller max_turns surface", () => {
     const params = Object.freeze({ ...launchParams, max_turns: 1 });
     await tool.execute("call", params, undefined, undefined, STUB_CTX);
     expect(manager.spawnAndWait).toHaveBeenCalledWith(
-      expect.anything(), "general-purpose", launchParams.prompt,
+      expect.anything(), "worker", launchParams.prompt,
       expect.objectContaining({ maxTurns: agentMaxTurns ?? 17 }),
     );
     expect(params.max_turns).toBe(1);

@@ -6,7 +6,7 @@
  *
  *   const { getSubagentsService } = await import("@gotgenes/pi-subagents");
  *   const svc = getSubagentsService();
- *   svc?.spawn("Explore", "Check for stale TODOs");
+ *   svc?.spawn("explore", "Check for stale TODOs");
  */
 
 import type { ResumeRefusal, SubagentRuntimeStats, SubagentStatus } from "#src/lifecycle/subagent";

@@ -23,10 +23,10 @@ async function createResumableTool(wasBackground = false) {
 	managers.push(manager);
 	const options = { description: "Original investigation" };
 	const record = wasBackground
-		? manager.getRecord(manager.spawn(STUB_SNAPSHOT, "Explore", "Investigate", {
+		? manager.getRecord(manager.spawn(STUB_SNAPSHOT, "explore", "Investigate", {
 			...options, background: { kind: "explicit", isBackground: true },
 		}))
-		: await manager.spawnAndWait(STUB_SNAPSHOT, "Explore", "Investigate", options);
+		: await manager.spawnAndWait(STUB_SNAPSHOT, "explore", "Investigate", options);
 	if (!record) throw new Error("Expected the initial agent record");
 	await record.promise;
 	record.markConsumed();
@@ -44,7 +44,7 @@ describe("AgentTool background resume", () => {
 		const controller = new AbortController();
 		const pending = tool.execute("tc-resume", {
 			resume: record.id, prompt: "continue", run_in_background: true,
-			model: "unavailable/new-model", subagent_type: "general-purpose", description: "Changed description",
+			model: "unavailable/new-model", subagent_type: "worker", description: "Changed description",
 		}, controller.signal, undefined, STUB_CTX);
 
 		try {
@@ -54,7 +54,7 @@ describe("AgentTool background resume", () => {
 			expect(ack.content[0].text).toBe(
 				"Agent resume accepted in background.\n" +
 				`Agent ID: ${record.id}\n` +
-				"Type: Explore\n" +
+				"Type: explore\n" +
 				"Description: Original investigation\n\n" +
 				"Continue independent work, or end your current turn if nothing else needs doing. Ending the turn does not mean the delegated task is complete.\n" +
 				"Results and questions will be pushed automatically; do not poll or call get_subagent_result just to wait.\n" +
@@ -62,7 +62,7 @@ describe("AgentTool background resume", () => {
 				"Do not duplicate this agent's work.",
 			);
 			expect(ack.details).toEqual({
-				displayName: "Explore", subagentType: "Explore", description: "Original investigation",
+				displayName: "explore", subagentType: "explore", description: "Original investigation",
 				toolUses: 0, tokens: "", durationMs: 0, status: "background", agentId: record.id,
 			});
 			expect(record.executionPending).toBe(true);

@@ -45,7 +45,7 @@ function makeSubagent(overrides: MakeSubagentOptions = {}): Subagent {
 	const { id, type, description, isBackground, execution, state, ...stateOverrides } = overrides;
 	return new Subagent({
 		id: id ?? "1",
-		type: type ?? "general-purpose",
+		type: type ?? "worker",
 		description: description ?? "test",
 		isBackground: isBackground ?? true,
 		execution: execution ?? makeStubExecution(),
@@ -65,9 +65,9 @@ function makeReadySubagent(): { agent: Subagent } {
 
 describe("Subagent — constructor", () => {
 	it("sets required fields from init", () => {
-		const record = makeSubagent({ id: "abc-123", type: "Explore", description: "Find stale TODOs" });
+		const record = makeSubagent({ id: "abc-123", type: "explore", description: "Find stale TODOs" });
 		expect(record.id).toBe("abc-123");
-		expect(record.type).toBe("Explore");
+		expect(record.type).toBe("explore");
 		expect(record.description).toBe("Find stale TODOs");
 	});
 
@@ -686,7 +686,7 @@ describe("Subagent.run() — workspace provider", () => {
 		// vacant field reappearing on the seam context.
 		expect(prepare.mock.calls[0][0]).toStrictEqual({
 			agentId: "run-1",
-			agentType: "general-purpose",
+			agentType: "worker",
 			baseCwd: "/parent",
 		});
 	});
@@ -1746,7 +1746,7 @@ describe("Subagent — provider failures reach the record", () => {
 				outputFile: "/sessions/child.jsonl",
 				sessionId: "child-1",
 				sessionDir: "/sessions",
-				agentName: "Explore",
+				agentName: "explore",
 				agentMaxTurns: undefined,
 				parentContext: undefined,
 				lifecycle: createChildLifecycleMock(),

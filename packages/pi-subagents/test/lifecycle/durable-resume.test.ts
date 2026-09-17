@@ -33,7 +33,7 @@ async function fixture() {
   deps.io.createSession.mockResolvedValue({ session });
   const params = {
     snapshot: STUB_SNAPSHOT,
-    type: "Explore",
+    type: "explore",
     runId: "run-1",
     parentSession: { parentSessionId: "parent-1", parentSessionFile: parent },
     resumeFrom: { outputFile: child, childSessionId: "child-1" },

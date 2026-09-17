@@ -105,15 +105,18 @@ function isEnabledAgent(registry: AgentConfigLookup, name: string): boolean {
 
 /**
  * Collect the per-agent usage guidelines for the subagent tool's Guidelines: block.
- * Sourced from each enabled default agent's `toolGuideline`, in registry order,
- * so a disabled built-in drops its guideline automatically.
+ * Include enabled builtin, custom, and overridden roles in catalog order.
+ * Attribute plain-text guidance to its role instead of requiring users to
+ * embed the name or Markdown framing in their settings.
  */
 export function buildAgentGuidelines(registry: TypeListRegistry): string[] {
-  return registry
-    .getDefaultAgentNames()
-    .filter((name) => isEnabledAgent(registry, name))
-    .map((name) => registry.resolveAgentConfig(name).toolGuideline)
-    .filter((line): line is string => line !== undefined);
+  return [...registry.getDefaultAgentNames(), ...registry.getUserAgentNames()]
+    .flatMap((name) => {
+      const config = registry.resolveAgentConfig(name);
+      const guideline = config.toolGuideline?.trim();
+      if (config.enabled === false || !guideline) return [];
+      return [`- ${name}: ${guideline.replace(/\r?\n/g, "\n  ")}`];
+    });
 }
 
 /** Derive a short model label from a model string. */

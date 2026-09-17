@@ -23,7 +23,7 @@ function makeDetails(overrides: Partial<AgentDetails> = {}): AgentDetails {
 	return {
 		displayName: "TestAgent",
 		description: "test task",
-		subagentType: "general-purpose",
+		subagentType: "worker",
 		toolUses: 0,
 		tokens: "",
 		durationMs: 2000,

@@ -35,12 +35,22 @@ describe("getDisplayName", () => {
     expect(getDisplayName("my-agent", registry)).toBe("my-agent");
   });
 
-  it("uses registry to resolve Explore displayName", () => {
-    expect(getDisplayName("Explore", testRegistry)).toBe("Explore");
+  it("uses registry to resolve explore displayName", () => {
+    expect(getDisplayName("explore", testRegistry)).toBe("explore");
   });
 
-  it("uses registry to resolve general-purpose displayName", () => {
-    expect(getDisplayName("general-purpose", testRegistry)).toBe("Agent");
+  it("resolves case-insensitively", () => {
+    expect(getDisplayName("EXPLORE", testRegistry)).toBe("explore");
+  });
+
+  it("uses registry to resolve worker displayName", () => {
+    expect(getDisplayName("worker", testRegistry)).toBe("worker");
+  });
+
+  it("returns the raw type for unknown and retired names", () => {
+    expect(getDisplayName("unknown-type", testRegistry)).toBe("unknown-type");
+    expect(getDisplayName("general-purpose", testRegistry)).toBe("general-purpose");
+    expect(getDisplayName("Plan", testRegistry)).toBe("Plan");
   });
 });
 
@@ -60,7 +70,13 @@ describe("getPromptModeLabel", () => {
   });
 
   it("returns undefined for replace promptMode", () => {
-    expect(getPromptModeLabel("Explore", testRegistry)).toBeUndefined();
+    expect(getPromptModeLabel("explore", testRegistry)).toBeUndefined();
+    expect(getPromptModeLabel("worker", testRegistry)).toBeUndefined();
+  });
+
+  it("returns undefined for unknown and retired names", () => {
+    expect(getPromptModeLabel("unknown-type", testRegistry)).toBeUndefined();
+    expect(getPromptModeLabel("general-purpose", testRegistry)).toBeUndefined();
   });
 });
 

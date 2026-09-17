@@ -8,7 +8,7 @@ import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
 function makeConfig(overrides: Parameters<typeof createResolvedSpawnConfig>[0] = {}) {
   return createResolvedSpawnConfig({
-    displayName: "General-purpose",
+    displayName: "worker",
     prompt: "do something",
     description: "bg task",
     runInBackground: true,
@@ -75,7 +75,7 @@ describe("spawnBackground", () => {
     expect(result.content[0].text).toBe(
       "Agent started in background.\n" +
       "Agent ID: agent-1\n" +
-      "Type: General-purpose\n" +
+      "Type: worker\n" +
       "Description: bg task\n\n" +
       "Continue independent work, or end your current turn if nothing else needs doing. Ending the turn does not mean the delegated task is complete.\n" +
       "Results and questions will be pushed automatically; do not poll or call get_subagent_result just to wait.\n" +
@@ -121,10 +121,14 @@ describe("spawnBackground", () => {
     const { manager } = createToolDeps();
     const result = spawnBackground(
       manager,
-      makeParams({ config: makeConfig({ fellBack: true, rawType: "unknown-type" }) }),
+      makeParams({
+        config: makeConfig({
+          notes: ['Note: agent "worker" locks model, so the model parameter was ignored.'],
+        }),
+      }),
     );
     expect(result.content[0].text).toMatch(
-      /^Note: Unknown agent type "unknown-type" — using general-purpose\.\n\nAgent (started|queued) in background\./,
+      /^Note: agent "worker" locks model, so the model parameter was ignored\.\n\nAgent (started|queued) in background\./,
     );
   });
 

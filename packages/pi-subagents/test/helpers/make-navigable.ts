@@ -8,7 +8,7 @@ import type { NavigableSubagent } from "#src/ui/session-navigation";
 export function makeNavigable(overrides: Partial<NavigableSubagent> = {}): NavigableSubagent {
   return {
     id: "agent-1",
-    type: "general-purpose",
+    type: "worker",
     description: "Test task",
     status: "completed",
     startedAt: 1000,

@@ -26,7 +26,7 @@ import type { ParentSessionInfo, Subagent } from "#src/types";
 import { type AgentDetails, getDisplayName, type Theme } from "#src/ui/display";
 import { GLYPHS } from "#src/ui/glyphs";
 
-const NEW_AGENT_EXAMPLE = '{"subagent_type":"general-purpose","description":"Investigate the reported issue","prompt":"Investigate the reported issue and summarize findings.","run_in_background":true}';
+const NEW_AGENT_EXAMPLE = '{"subagent_type":"explore","description":"Locate request validation","prompt":"Locate request validation and report the relevant paths and evidence. Do not edit files.","run_in_background":true}';
 
 // ---- Deps interfaces ----
 
@@ -140,7 +140,7 @@ export class AgentTool {
 			this.settings,
 			{ thinking: sessionThinking },
 		);
-		if ("error" in config) return textResult(config.error);
+		if ("error" in config) throw new Error(config.error);
 
 		// ---- Boundary extraction (after config so inheritContext is resolved) ----
 		const snapshot = this.runtime.buildSnapshot(config.execution.inheritContext);
@@ -235,17 +235,19 @@ export class AgentTool {
 		const registry = this.registry;
 
 		const guidelines = [
+			"- Keep simple lookups and small changes local when delegation costs more than it saves. The parent owns planning, integration, and the final answer; there is no mandatory specialist pipeline.",
 			"- Prefer run_in_background: true for independent delegation, including resumes. Use foreground only when the result is needed before your next step.",
 			...this.agentGuidelines,
-			"- Provide clear, detailed prompts so the agent can work autonomously.",
-			"- Subagent results are returned as text — summarize them for the user.",
+			"- Give each agent a self-contained task: objective, relevant paths and evidence, constraints, owned scope, success checks, and a concise expected output. Check that its tools can do the task. Include a stopping condition for open-ended investigation.",
+			"- Assign disjoint write ownership to parallel agents, preserve existing edits, and coordinate shared files; a prompt is not workspace isolation. Read-only roles are behavioral contracts, not shell sandboxes.",
+			"- Do not repeat delegated investigation while it runs. On completion, inspect material evidence or diffs and verify integration proportional to risk; a confident report is not proof. Resolve conflicts and summarize verified results and gaps for the user.",
 			"- After background launch or resume, continue independent work or end your current turn. Ending the turn does not mean the delegated task is complete. Results and questions are pushed automatically; do not poll or reflexively wait.",
 			"- Use get_subagent_result only for full output beyond the pushed result, truncated-output recovery, transcript inspection (verbose: true), or diagnostics.",
 			"- Use resume with an agent ID and prompt to continue a previous agent's work, or answer its question. Type and description are retained; model, thinking, and other spawn configuration do not change a resumed session.",
 			"- Use steer_subagent to send mid-run messages to a running background agent.",
 			'- Use model to specify a different model (as "provider/modelId", or fuzzy e.g. "haiku", "sonnet").',
 			"- Reasoning inherits the agent's configured thinking level, or the parent's current level when unset; it cannot be overridden through this tool.",
-			"- Unknown agent types fall back to general-purpose, with a note in the result.",
+			"- Unknown or disabled agent types are rejected. Choose an enabled type from the catalog; there is no fallback agent.",
 			"- Use inherit_context to copy parent conversation text; tool calls, tool results, and images are not copied.",
 		].join("\n");
 
@@ -254,6 +256,7 @@ export class AgentTool {
 			label: "Subagent",
 			promptSnippet: "Delegate independent work in background; create with prompt, subagent_type, and description, or continue with resume and prompt.",
 			promptGuidelines: [
+				"Use subagent only when a bounded specialist task or useful parallel work justifies delegation; keep simple work and overall planning in the parent.",
 				"Prefer subagent with run_in_background: true for independent delegation, including resumes; results and questions are pushed automatically. Use foreground only when the result is needed before your next step.",
 				"Do not use get_subagent_result to poll or reflexively wait for subagent work; reserve it for full output, truncated-output recovery, transcript inspection, or diagnostics.",
 			],
@@ -282,7 +285,7 @@ ${guidelines}
 					description: "A short (3-5 word) description of the task (shown in UI). Required for new agents; omitted on resume.",
 				})),
 				subagent_type: Type.Optional(Type.String({
-					description: `Required for new agents; omitted on resume, which keeps the original type. Unknown types fall back to general-purpose. Available types: ${availableTypesText}. Custom agents from .pi/agents/<name>.md (project) or ${agentDir}/agents/<name>.md (global) are also available.`,
+					description: `Required for new agents; omitted on resume, which keeps the original type. Unknown or disabled types are rejected. Available types: ${availableTypesText}. Custom agents from .pi/agents/<name>.md (project) or ${agentDir}/agents/<name>.md (global) are also available.`,
 				})),
 				model: Type.Optional(
 					Type.String({

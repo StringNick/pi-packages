@@ -167,7 +167,7 @@ async function captureSessionFactoryIO(parentRegistry: unknown) {
     {
       prompt: "hi",
       description: "child",
-      subagent_type: "general-purpose",
+      subagent_type: "worker",
       run_in_background: true,
     },
     undefined,
@@ -195,7 +195,7 @@ describe("composition root: hosted cwd and trust", () => {
       const parent = makePi(); subagentsExtension(parent.pi);
       expect(parent.tools.get("subagent").description).not.toContain("GLOBAL_AGENT");
       expect(parent.pi.events.emit.mock.calls.some(([name]: string[]) => name === "subagents:settings_loaded")).toBe(false);
-      await expect(parent.tools.get("subagent").execute("prebind", { prompt: "probe", description: "probe", subagent_type: "general-purpose", run_in_background: true }, undefined, undefined)).rejects.toThrow();
+      await expect(parent.tools.get("subagent").execute("prebind", { prompt: "probe", description: "probe", subagent_type: "worker", run_in_background: true }, undefined, undefined)).rejects.toThrow();
       const ctx = makeSessionStartCtx(makeParentRegistry().registry, makeRecordingUI());
       ctx.cwd = cwd; ctx.sessionManager.getSessionId = () => id; ctx.sessionManager.getSessionFile = () => `/sessions/${id}.jsonl`;
       await parent.fire("session_start", {}, ctx);
@@ -348,7 +348,7 @@ describe("composition root: widget activation", () => {
 
     // The reported path: a command handler spawning through the published
     // service, so nothing in the parent loop ever emits a tool call.
-    getSubagentsService()!.spawn("general-purpose", "hi", { description: "child" });
+    getSubagentsService()!.spawn("worker", "hi", { description: "child" });
 
     expect(ui.setWidget).toHaveBeenCalled();
 
@@ -365,7 +365,7 @@ describe("composition root: widget activation", () => {
     const ui = makeRecordingUI();
     await fire("session_start", {}, makeSessionStartCtx(makeParentRegistry().registry, ui, true));
 
-    getSubagentsService()!.spawn("general-purpose", "hi", { description: "child" });
+    getSubagentsService()!.spawn("worker", "hi", { description: "child" });
     await vi.advanceTimersByTimeAsync(300);
 
     // The run finished within this turn, so the row is seeded at age 0 and still shown.
@@ -417,7 +417,7 @@ describe("composition root: widget teardown", () => {
 
     const ui = makeRecordingUI();
     await fire("session_start", {}, makeSessionStartCtx(makeParentRegistry().registry, ui, true));
-    getSubagentsService()!.spawn("general-purpose", "hi", { description: "child" });
+    getSubagentsService()!.spawn("worker", "hi", { description: "child" });
     await vi.advanceTimersByTimeAsync(300);
 
     // The run finished within this turn, so the row lingers and the widget stays up.
@@ -472,7 +472,7 @@ describe("composition root: prompt-inheritance wiring", () => {
       {
         prompt: "hi",
         description: "child",
-        subagent_type: "general-purpose",
+        subagent_type: "worker",
         run_in_background: true,
       },
       undefined,

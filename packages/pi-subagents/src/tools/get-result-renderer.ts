@@ -103,7 +103,7 @@ function subLine(text: string, color: string, theme: Theme): string {
 	return theme.fg(color, `  ${GLYPHS.subLine}  ${text}`);
 }
 
-/** Build the stats string: "Explore · 44 tool uses · 95.9k token · 9% · ⇊3 · 213.0s". */
+/** Build the stats string: "explore · 44 tool uses · 95.9k token · 9% · ⇊3 · 213.0s". */
 function renderStats(details: GetResultDetails, theme: Theme): string {
 	const parts = [details.displayName];
 	if (details.toolUses > 0) {
