@@ -2,6 +2,7 @@ import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-
 import type { SessionFactoryIO } from "#src/lifecycle/create-subagent-session";
 import { debugLog } from "#src/debug";
 
+export { getSubagentSessionDirectory, deleteSubagentSessionFiles } from "#src/session/session-storage";
 export { getSubagentWorkload, subscribeSubagentWorkloads, type SubagentWorkload, type SubagentWorkloadEvent } from "./workload";
 export { buildAgentPrompt } from "#src/session/prompts";
 export { inheritRegisteredProviders } from "#src/session/provider-inheritance";

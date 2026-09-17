@@ -414,6 +414,27 @@ Native validation and `locked:` restrictions remain authoritative.
 An invalid nonblank thinking level reports a validation error instead of silently reverting to the agent or parent level.
 These hooks apply only to new `subagent` tool launches, not resumes or `SubagentsService.spawn` calls.
 
+### `@gotgenes/pi-subagents/host` — permanent child history deletion
+
+`getSubagentSessionDirectory(parentSessionFile)` returns the owned `<parent-basename>/tasks` directory for an absolute parent JSONL path.
+`await deleteSubagentSessionFiles(parentSessionFile)` recursively deletes that directory, including nested children and child forks stored within it, and removes its container only when empty.
+The parent JSONL, adjacent extension artifacts, and independent forks outside that tree are preserved.
+Neither function follows `parentSession` header links or resolves the shared temporary fallback for an in-memory parent.
+
+Call cleanup only for an explicit permanent deletion, after fencing new launches and awaiting shutdown of every owned writer; never call it on stop, idle eviction, reload, or ordinary runtime disposal.
+Missing storage succeeds, while invalid paths, symlinked ownership directories, and filesystem failures reject.
+Retain the parent JSONL until cleanup succeeds so a failed deletion can be retried.
+This is not an atomic transaction or protection against a concurrent external writer; a partial filesystem failure can already have removed some children.
+
+```typescript
+import { rm } from "node:fs/promises";
+import { deleteSubagentSessionFiles } from "@gotgenes/pi-subagents/host";
+
+// The host holds its deletion fence and has awaited native child shutdown.
+await deleteSubagentSessionFiles(parentSessionFile);
+await rm(parentSessionFile, { force: true });
+```
+
 ### `@gotgenes/pi-subagents/settings` — layered config loader
 
 Extensions that store configuration in JSON files can use the shared layered loader, which reads a global file (`<agentDir>/<filename>`) and a project file (`<cwd>/.pi/<filename>`) and merges them — project wins on conflicts, missing files are silent, malformed files warn and fall back:
