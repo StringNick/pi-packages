@@ -13,6 +13,8 @@
  * - `resolveSpawnConfig` — the pure launch-door resolution (precedence proof);
  * - `resolveSessionModelOverride` / `resolveSessionThinkingOverride` — explicit
  *   user selections at the tool door.
+ * - `resolveExposeCallerMaxTurns` — host policy withholding the caller-facing
+ *   `max_turns` param from the LLM tool surface.
  *
  * Runtime tuning (`subagents.json`) stays behind the `/subagents:settings`
  * door and the `SettingsManager`; this seam carries no settings ownership.
@@ -44,6 +46,7 @@ export {
   sanitizeSubagentsSettings,
 } from "#src/settings";
 export {
+  resolveExposeCallerMaxTurns,
   resolveSessionModelOverride,
   resolveSessionThinkingOverride,
 } from "#src/tools/session-override";

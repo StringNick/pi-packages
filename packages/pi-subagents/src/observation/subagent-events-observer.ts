@@ -14,6 +14,42 @@ export interface SubagentEventsObserverDeps {
 	notifications: NotificationSystem;
 }
 
+/** Display-only launch attribution bounds, mirroring host fleet-service slicing. */
+const MAX_MODEL_ID = 256;
+const MAX_MODEL_NAME = 128;
+const MAX_THINKING = 64;
+
+function boundedField(value: unknown, max: number): string | undefined {
+	if (typeof value !== "string" || value.length === 0 || value.includes("\0")) return undefined;
+	const sliced = value.slice(0, max);
+	return sliced.length > 0 ? sliced : undefined;
+}
+
+/**
+ * Launch-time model + reasoning attribution for the durable record.
+ * Available at both started (non-terminal) and terminal persists via the
+ * launch snapshot, updated when Pi resolves defaults and model capabilities.
+ */
+function boundedAttribution(record: Subagent): Record<string, string> {
+	const out: Record<string, string> = {};
+	const model = record.launchModel;
+	if (model?.id) {
+		const id = model.id;
+		const provider = model.provider;
+		const qualified =
+			typeof provider === "string" && provider.length > 0 && !id.startsWith(`${provider}/`)
+				? `${provider}/${id}`
+				: id;
+		const modelId = boundedField(qualified, MAX_MODEL_ID);
+		if (modelId) out.modelId = modelId;
+	}
+	const modelName = boundedField(model?.name, MAX_MODEL_NAME);
+	if (modelName) out.modelName = modelName;
+	const thinkingLevel = boundedField(record.launchThinkingLevel, MAX_THINKING);
+	if (thinkingLevel) out.thinkingLevel = thinkingLevel;
+	return out;
+}
+
 /**
  * Receives agent lifecycle notifications from SubagentManager and dispatches
  * them to three concerns: pi.events lifecycle events, session-entry persistence,
@@ -41,6 +77,12 @@ export class SubagentEventsObserver implements SubagentManagerObserver {
 			type: record.type,
 			description: record.description,
 		});
+	}
+
+	onSubagentSessionCreated(record: Subagent): void {
+		// Persist Pi's resolved attribution and transcript pointer before the first
+		// turn, so a crash cannot leave only the requested launch configuration.
+		this.persistRecord(record, false);
 	}
 
 	onSubagentCompleted(record: Subagent): void {
@@ -114,6 +156,7 @@ export class SubagentEventsObserver implements SubagentManagerObserver {
 			isBackground: record.isBackground,
 			toolUses: record.toolUses,
 			turnCount: record.turnCount,
+			...boundedAttribution(record),
 			...(record.outputFile ? { outputFile: record.outputFile } : {}),
 			...(record.childSessionId ? { childSessionId: record.childSessionId } : {}),
 			...(terminal ? {

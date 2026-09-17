@@ -20,7 +20,7 @@ import { spawnBackground } from "#src/tools/background-spawner";
 import { runForeground } from "#src/tools/foreground-runner";
 import { BACKGROUND_ACK_GUIDANCE, buildAgentGuidelines, buildDetails, buildTypeListText, textResult } from "#src/tools/helpers";
 import { renderAgentResult } from "#src/tools/result-renderer";
-import { resolveSessionModelOverride, resolveSessionThinkingOverride } from "#src/tools/session-override";
+import { resolveExposeCallerMaxTurns, resolveSessionModelOverride, resolveSessionThinkingOverride } from "#src/tools/session-override";
 import { type ModelInfo, resolveSpawnConfig } from "#src/tools/spawn-config";
 import type { ParentSessionInfo, Subagent } from "#src/types";
 import { type AgentDetails, getDisplayName, type Theme } from "#src/ui/display";
@@ -117,7 +117,13 @@ export class AgentTool {
 			params.subagent_type,
 			this.registry,
 		);
-		const effectiveParams =
+		// Hosts may withhold the caller-facing `max_turns` param: the schema omits
+		// it, and an undeclared caller value is discarded here so turn limits stay
+		// owned by agent definitions and runtime settings.
+		const exposeCallerMaxTurns = resolveExposeCallerMaxTurns(
+			this.runtime.getSessionInfo().parentSessionId,
+		);
+		const overrideParams =
 			sessionModel !== undefined || sessionThinking !== undefined
 				? {
 						...params,
@@ -125,6 +131,10 @@ export class AgentTool {
 						...(sessionThinking !== undefined ? { thinking: sessionThinking } : null),
 					}
 				: params;
+		const effectiveParams =
+			!exposeCallerMaxTurns && params.max_turns !== undefined
+				? { ...overrideParams, max_turns: undefined }
+				: overrideParams;
 
 		// ---- Config resolution (pure) ----
 		const config = resolveSpawnConfig(
@@ -289,13 +299,17 @@ ${guidelines}
 							"Thinking level: off, minimal, low, medium, high, xhigh, max. A user session selection for this agent type wins over this parameter. Overrides the agent's default unless the agent locks this field.",
 					}),
 				),
-				max_turns: Type.Optional(
-					Type.Number({
-						description:
-							"Maximum number of agentic turns before stopping. Omit to use the agent's own limit, or unlimited when it declares none.",
-						minimum: 1,
-					}),
-				),
+				...(resolveExposeCallerMaxTurns(this.runtime.getSessionInfo().parentSessionId)
+					? {
+							max_turns: Type.Optional(
+								Type.Number({
+									description:
+											"Maximum number of agentic turns before stopping. Omit to use the agent's own limit, or unlimited when it declares none.",
+										minimum: 1,
+									}),
+								),
+							}
+					: {}),
 				run_in_background: Type.Optional(
 					Type.Boolean({
 						description:

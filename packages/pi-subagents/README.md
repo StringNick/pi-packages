@@ -124,7 +124,7 @@ Launch a sub-agent.
 | `subagent_type`     | string  | new only | Agent type (built-in or custom)                                               |
 | `model`             | string  | no       | Model — `provider/modelId` (legacy `provider:modelId` accepted) or fuzzy name |
 | `thinking`          | string  | no       | Thinking level: off, minimal, low, medium, high, xhigh, max                   |
-| `max_turns`         | number  | no       | Max agentic turns. Omit for the agent's own limit                             |
+| `max_turns`         | number  | no       | Max agentic turns. Omit for the agent's own limit. A host may withhold this param (`SubagentHost.exposeCallerMaxTurns: false`) |
 | `run_in_background` | boolean | no       | Run without blocking                                                          |
 | `resume`            | string  | no       | Agent ID to resume a previous session                                         |
 | `inherit_context`   | boolean | no       | Copy parent conversation text, excluding tool I/O and images                  |

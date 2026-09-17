@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildEventData, type NotificationSystem } from "#src/observation/notification";
 import { SubagentEventsObserver } from "#src/observation/subagent-events-observer";
 import type { CompactionInfo } from "#src/types";
-import { createTestSubagent } from "#test/helpers/make-subagent";
+import { createTestSubagent, makeStubExecution } from "#test/helpers/make-subagent";
+import { makeModel } from "#test/helpers/make-model";
+import { createSubagentSessionStub, toSubagentSession } from "#test/helpers/mock-session";
 
 function makeNotifications(): NotificationSystem {
 	return {
@@ -377,6 +379,93 @@ describe("SubagentEventsObserver", () => {
 			observer.onSubagentWorkspaceNotice(createTestSubagent(), NOTICE);
 
 			expect(appendEntry).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("launch attribution", () => {
+		it("persists resolved launch defaults and transcript linkage before the first turn", async () => {
+			const { observer, appendEntry } = makeObserver();
+			const stub = createSubagentSessionStub(undefined, "/sessions/child.jsonl", "resolved-child");
+			Object.assign(stub, { getModel: () => makeModel({ id: "resolved", provider: "anthropic" }) });
+			stub.runTurnLoop.mockImplementation(async () => {
+				expect(appendEntry).toHaveBeenLastCalledWith("subagents:record", expect.objectContaining({
+					modelId: "anthropic/resolved", thinkingLevel: "off", status: "running",
+					childSessionId: "resolved-child", outputFile: "/sessions/child.jsonl",
+				}));
+				return { responseText: "done", aborted: false, steered: false };
+			});
+			const record = createTestSubagent({ execution: makeStubExecution({
+				thinkingLevel: "high",
+				createSubagentSession: async () => toSubagentSession(stub),
+				observer: {
+					onStarted: (agent) => observer.onSubagentStarted(agent),
+					onSessionCreated: (agent) => observer.onSubagentSessionCreated(agent),
+				},
+			}) });
+			await record.run();
+			expect(record.status).toBe("completed");
+			expect(appendEntry).toHaveBeenCalledTimes(2);
+		});
+
+		it("persists provider-qualified modelId, modelName and thinkingLevel on started and completed", () => {
+			const { observer, appendEntry } = makeObserver();
+			const execution = makeStubExecution({
+				model: makeModel({ id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", provider: "anthropic" }),
+				thinkingLevel: "high",
+			});
+			const started = createTestSubagent({ id: "agent-attr", status: "running", execution });
+			observer.onSubagentStarted(started);
+			expect(appendEntry).toHaveBeenCalledWith("subagents:record", expect.objectContaining({
+				modelId: "anthropic/claude-sonnet-4-5",
+				modelName: "Claude Sonnet 4.5",
+				thinkingLevel: "high",
+			}));
+			const done = createTestSubagent({ id: "agent-attr", status: "completed", execution });
+			observer.onSubagentCompleted(done);
+			expect(appendEntry).toHaveBeenLastCalledWith("subagents:record", expect.objectContaining({
+				modelId: "anthropic/claude-sonnet-4-5",
+				modelName: "Claude Sonnet 4.5",
+				thinkingLevel: "high",
+			}));
+		});
+
+		it("keeps an already-qualified id unchanged and falls back to the raw id without a provider", () => {
+			const { observer, appendEntry } = makeObserver();
+			const qualified = createTestSubagent({
+				status: "running",
+				execution: makeStubExecution({
+					model: makeModel({ id: "anthropic/claude-sonnet-4-5", provider: "anthropic" }),
+				}),
+			});
+			observer.onSubagentStarted(qualified);
+			expect(appendEntry).toHaveBeenLastCalledWith("subagents:record", expect.objectContaining({
+				modelId: "anthropic/claude-sonnet-4-5",
+			}));
+		});
+
+		it("omits attribution for legacy launches without a resolved model or thinking level", () => {
+			const { observer, appendEntry } = makeObserver();
+			observer.onSubagentStarted(createTestSubagent({ status: "running" }));
+			const entry = appendEntry.mock.calls[0]?.[1] as Record<string, unknown>;
+			expect(entry).not.toHaveProperty("modelId");
+			expect(entry).not.toHaveProperty("modelName");
+			expect(entry).not.toHaveProperty("thinkingLevel");
+		});
+
+		it("bounds attribution lengths like the host fleet projection", () => {
+			const { observer, appendEntry } = makeObserver();
+			const record = createTestSubagent({
+				status: "running",
+				execution: makeStubExecution({
+					model: makeModel({ id: "m".repeat(300), name: "n".repeat(200), provider: "p" }),
+					thinkingLevel: "h".repeat(100) as never,
+				}),
+			});
+			observer.onSubagentStarted(record);
+			const entry = appendEntry.mock.calls[0]?.[1] as Record<string, unknown>;
+			expect((entry.modelId as string).length).toBeLessThanOrEqual(256);
+			expect((entry.modelName as string).length).toBeLessThanOrEqual(128);
+			expect((entry.thinkingLevel as string).length).toBeLessThanOrEqual(64);
 		});
 	});
 });

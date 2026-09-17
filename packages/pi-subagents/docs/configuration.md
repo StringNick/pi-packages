@@ -169,6 +169,8 @@ The delivery option `run_in_background: true` returns immediately for a resume, 
 
 A `subagent` tool parameter wins over the agent file's value for `model`, `thinking`, `max_turns`, `inherit_context`, and `run_in_background`; the agent file supplies whichever of those the caller left unset.
 
+A host can withhold the caller-facing `max_turns` entirely by registering `SubagentHost.exposeCallerMaxTurns: false`: the property disappears from the LLM-visible tool schema and an undeclared caller value is discarded at the door, so turn limits come only from agent files and runtime settings. Absent or `true` keeps the native surface.
+
 ### Locking fields against callers
 
 An agent whose model, thinking level, or turn limit is a correctness requirement rather than a default can withhold it from callers with `locked`.

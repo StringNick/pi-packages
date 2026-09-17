@@ -23,7 +23,7 @@ import { normalizeMaxTurns } from "#src/lifecycle/turn-limits";
 import { getSessionContextPercent, type SessionStatsLike } from "#src/lifecycle/usage";
 import { extractText } from "#src/session/context";
 import { getAgentConversation } from "#src/session/conversation";
-import type { SessionMessage } from "#src/types";
+import type { SessionMessage, ThinkingLevel } from "#src/types";
 
 /** Outcome of one turn loop. */
 export interface TurnLoopResult {
@@ -194,6 +194,11 @@ export class SubagentSession {
   /** Resolved model of the child session, or undefined before the first run. */
   getModel(): Model<any> | undefined {
     return this._session.model;
+  }
+
+  /** Effective Pi thinking level after model capability clamping and defaults. */
+  getThinkingLevel(): ThinkingLevel {
+    return this._session.thinkingLevel;
   }
 
   /** Context-window usage snapshot from the child session, or undefined before the first run. */

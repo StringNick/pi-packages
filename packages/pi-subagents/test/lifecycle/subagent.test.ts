@@ -7,6 +7,7 @@ import type { WorkspacePrepareContext, WorkspaceProvider } from "#src/lifecycle/
 import type { RunConfig } from "#src/runtime";
 import type { CompactionInfo, SubagentType } from "#src/types";
 import { createTestSubagent, makeStubExecution } from "#test/helpers/make-subagent";
+import { makeModel } from "#test/helpers/make-model";
 import { makeWorkspace, makeWorkspaceProvider } from "#test/helpers/make-workspace";
 import { createMockSession, createSubagentSessionStub, emitResumeUsageAndCompaction, toAgentSession, toSubagentSession } from "#test/helpers/mock-session";
 import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
@@ -1896,5 +1897,75 @@ describe("Subagent.resume() — awaitable handle", () => {
 		await returned;
 		expect(agent.status).toBe("completed");
 		expect(agent.result).toBe("resumed late");
+	});
+});
+
+describe("Subagent — launch attribution", () => {
+	it.each([undefined, "high"] as const)("captures actual Pi launch for requested thinking %s, retaining it after release", async (thinkingLevel) => {
+		const model = makeModel({ id: "actual", provider: "anthropic" });
+		const stub = createSubagentSessionStub();
+		Object.assign(stub, {
+			getModel: () => model,
+			getThinkingLevel: () => "off",
+			getContextUsage: () => undefined,
+		});
+		const onSessionCreated = vi.fn();
+		const agent = createTestSubagent({ execution: makeStubExecution({
+			thinkingLevel,
+			createSubagentSession: async () => toSubagentSession(stub),
+			observer: { onSessionCreated },
+		}) });
+		await agent.run();
+		expect(onSessionCreated).toHaveBeenCalledWith(agent);
+		expect(agent.launchModel).toBe(model);
+		expect(agent.launchThinkingLevel).toBe("off");
+		expect(agent.getRuntimeStats().thinkingLevel).toBe("off");
+		await agent.releaseSession();
+		expect(agent.launchModel).toBe(model);
+		expect(agent.launchThinkingLevel).toBe("off");
+		expect(agent.getRuntimeStats()).toMatchObject({
+			model: { id: "actual", name: model.name, provider: "anthropic" },
+			thinkingLevel: "off", contextPercent: null, contextTokens: null,
+		});
+	});
+
+	it("exposes the spawn-time model and thinking level while keeping execution private", () => {
+		const model = makeModel({ id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", provider: "anthropic" });
+		const agent = createTestSubagent({ execution: makeStubExecution({ model, thinkingLevel: "high" }) });
+		expect(agent.launchModel).toBe(model);
+		expect(agent.launchThinkingLevel).toBe("high");
+		expect(agent.getRuntimeStats().model).toBeUndefined();
+		expect("execution" in agent && (agent as unknown as Record<string, unknown>).execution).toBeDefined();
+	});
+
+	it("reports undefined launch attribution when nothing was resolved", () => {
+		const agent = createTestSubagent();
+		expect(agent.launchModel).toBeUndefined();
+		expect(agent.launchThinkingLevel).toBeUndefined();
+	});
+
+	it("carries the launch thinking level in runtime stats without a session", () => {
+		const agent = createTestSubagent({ execution: makeStubExecution({ thinkingLevel: "medium" }) });
+		const stats = agent.getRuntimeStats();
+		expect(stats.thinkingLevel).toBe("medium");
+		expect(stats.model).toBeUndefined();
+	});
+
+	it("omits the thinking level from runtime stats when the launch did not set one", () => {
+		const agent = createTestSubagent();
+		expect(agent.getRuntimeStats().thinkingLevel).toBeUndefined();
+	});
+
+	it("reads live model and thinking from the child session instead of requested launch thinking", () => {
+		const agent = createTestSubagent({ execution: makeStubExecution({ thinkingLevel: "low" }) });
+		const session = createMockSession();
+		const stub = createSubagentSessionStub(session);
+		(stub as unknown as Record<string, unknown>).getModel = () => makeModel({ id: "sonnet", name: "Sonnet", provider: "anthropic", contextWindow: 200000 });
+		(stub as unknown as Record<string, unknown>).getContextUsage = () => ({ percent: 10, tokens: 20000 });
+		agent.subagentSession = toSubagentSession(stub);
+		const stats = agent.getRuntimeStats();
+		expect(stats.model).toMatchObject({ id: "sonnet", name: "Sonnet", provider: "anthropic" });
+		expect(stats.contextWindow).toBe(200000);
+		expect(stats.thinkingLevel).toBe("off");
 	});
 });

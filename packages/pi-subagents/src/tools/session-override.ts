@@ -14,6 +14,10 @@
  * the usual lock note in the result); an unresolvable override surfaces as an
  * error exactly like an unresolvable caller param. Absent host, missing hook,
  * or any throw → undefined, i.e. no behavior change.
+ *
+ * The same door also carries `exposeCallerMaxTurns`: a host policy for the
+ * caller-facing `max_turns` param (schema omission + discard), keeping turn
+ * limits owned by agent definitions and runtime settings.
  */
 
 import type { AgentTypeRegistry } from "#src/config/agent-types";
@@ -39,6 +43,23 @@ export function resolveSessionThinkingOverride(
   registry: AgentTypeRegistry,
 ): string | undefined {
   return resolveSessionOverride(parentSessionId, rawType, registry, "resolveSessionThinkingOverride");
+}
+
+/**
+ * Host policy for the caller-facing `max_turns` param: false withholds the
+ * property from the tool schema and discards an undeclared caller value at
+ * execute time. Absent host, missing flag, or any throw → true (native
+ * surface unchanged). Consulted where the tool is (re)registered and at the
+ * door, so schema and behavior cannot drift apart.
+ */
+export function resolveExposeCallerMaxTurns(parentSessionId: string): boolean {
+  try {
+    const host = getSubagentHost(parentSessionId)?.host;
+    if (!host) return true;
+    return host.exposeCallerMaxTurns !== false;
+  } catch {
+    return true;
+  }
 }
 
 function resolveSessionOverride(

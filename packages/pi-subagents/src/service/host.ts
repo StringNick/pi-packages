@@ -41,6 +41,14 @@ export interface SubagentHost {
   resolveSessionThinkingOverride?(agentName: string): string | undefined;
   /** Immutable host-admitted project-agent trust; hosted omission denies project agents. */
   readonly allowProjectAgents?: boolean;
+  /**
+   * Host policy for the LLM-facing subagent tool surface. When false, the
+   * `max_turns` property is omitted from the tool schema and a caller-supplied
+   * value is discarded at the door: turn limits then come only from the agent
+   * definition (`max_turns` frontmatter / `locked:`) and runtime settings.
+   * Absent → exposed (native behavior).
+   */
+  readonly exposeCallerMaxTurns?: boolean;
   /** The admitted Pi profile for global agent definitions. */
   readonly agentDir?: string;
   /** Synchronous Core admission fence before scheduling a new or resumed native run. */

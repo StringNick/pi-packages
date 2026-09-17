@@ -26,8 +26,10 @@ import type { CompactionInfo, ParentSessionInfo, SessionMessage, SubagentType, T
  * deliberately kept out of the durable `SubagentRecord` snapshot
  * (docs/decisions/0005-subagent-record-admission-policy). */
 export interface SubagentRuntimeStats {
-	/** Resolved model identity, once the child session exists. */
+	/** Resolved model identity, retained from the launch after the child session is released. */
 	model: Readonly<{ id: string; name: string; provider: string }> | undefined;
+	/** Effective thinking level read from the child session, or launch configuration before creation. */
+	thinkingLevel?: string;
 	/** Resolved model context window in tokens, once the model is known. */
 	contextWindow: number | undefined;
 	/** Context-window utilization (0–100), or null when unknown (e.g. right after compaction). */
@@ -186,6 +188,19 @@ export class Subagent {
 	isRunning(): boolean { return this.state.isRunning(); }
 	canBeSteered(): boolean { return this.state.canBeSteered(); }
 	get maxTurns(): number | undefined { return this.execution.maxTurns; }
+	/**
+	 * Model resolved by Pi at launch; requested configuration before creation.
+	 */
+	get launchModel(): Model<any> | undefined {
+		return this.launchAttribution ? this.launchAttribution.model : this.execution.model;
+	}
+	/**
+	 * Thinking resolved by Pi at launch; requested configuration before creation.
+	 */
+	get launchThinkingLevel(): ThinkingLevel | undefined {
+		return this.launchAttribution ? this.launchAttribution.thinkingLevel : this.execution.thinkingLevel;
+	}
+	private launchAttribution?: { model: Model<any> | undefined; thinkingLevel: ThinkingLevel };
 
 	readonly abortController: AbortController;
 	private _promise?: Promise<void>;
@@ -308,10 +323,14 @@ export class Subagent {
 
 	/** Live runtime facts (model, context-window usage, active tool calls) for host projections. */
 	getRuntimeStats(): SubagentRuntimeStats {
-		const model = this.subagentSession?.getModel();
+		const model = this.subagentSession
+			? this.subagentSession.getModel()
+			: this.launchAttribution?.model;
 		const usage = this.subagentSession?.getContextUsage();
+		const thinkingLevel = this.subagentSession?.getThinkingLevel() ?? this.launchThinkingLevel;
 		return {
 			model: model ? { id: model.id, name: model.name, provider: model.provider } : undefined,
+			...(thinkingLevel ? { thinkingLevel } : {}),
 			contextWindow: model?.contextWindow,
 			contextPercent: usage?.percent ?? null,
 			contextTokens: usage?.tokens ?? null,
@@ -420,6 +439,10 @@ export class Subagent {
 			return;
 		}
 
+		this.launchAttribution = {
+			model: this.subagentSession.getModel(),
+			thinkingLevel: this.subagentSession.getThinkingLevel(),
+		};
 		this.flushPendingSteers();
 		this.listeners.attachObserver(subscribeSubagentObserver(this.subagentSession, this.state, {
 			onCompact: (info) => this.execution.observer?.onCompacted?.(this, info),

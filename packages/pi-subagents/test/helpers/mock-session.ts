@@ -65,6 +65,9 @@ export function createSubagentSessionStub(
 		}),
 		getConversation: vi.fn((): string => ""),
 		getContextPercent: vi.fn((): number | null => null),
+		getModel: vi.fn(() => undefined),
+		getThinkingLevel: vi.fn(() => "off" as const),
+		getContextUsage: vi.fn(() => undefined),
 		subscribe: vi.fn((fn: (event: unknown) => void): (() => void) => session.subscribe(fn)),
 		getSessionStats: vi.fn(() => ({
 			tokens: { input: 0, output: 0, cacheWrite: 0 },
