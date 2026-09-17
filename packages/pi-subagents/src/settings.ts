@@ -15,10 +15,6 @@ export interface SubagentsSettings {
    */
   defaultMaxTurns?: number;
   graceTurns?: number;
-  /** Minutes a consumed agent's session is retained after its last relevance event. */
-  consumedSessionRetentionMinutes?: number;
-  /** Minutes an unconsumed agent's session is retained (safety cap). */
-  unconsumedSessionRetentionMinutes?: number;
   /**
    * When false, a parent interrupt (ESC) leaves background and queued subagents
    * running. Foreground agents hold the parent's run signal directly, so they
@@ -55,8 +51,6 @@ export interface SettingsSnapshot {
   maxConcurrent: number;
   defaultMaxTurns: number;
   graceTurns: number;
-  consumedSessionRetentionMinutes: number;
-  unconsumedSessionRetentionMinutes: number;
   abortAllOnInterrupt: boolean;
   midRunUpdates: boolean;
   /**
@@ -80,8 +74,6 @@ export type SettingsEmit = (event: string, payload: unknown) => void;
 export const SUBAGENTS_SETTING_DEFAULTS = {
   maxConcurrent: 4,
   graceTurns: 5,
-  consumedSessionRetentionMinutes: 10,
-  unconsumedSessionRetentionMinutes: 720,
   abortAllOnInterrupt: true,
   midRunUpdates: true,
 } as const;
@@ -90,12 +82,9 @@ export const SUBAGENTS_SETTING_LIMITS = {
   maxConcurrent: 1024,
   defaultMaxTurns: 10_000,
   graceTurns: 1_000,
-  retentionMinutes: 20_160,
 } as const;
 const DEFAULT_MAX_CONCURRENT = SUBAGENTS_SETTING_DEFAULTS.maxConcurrent;
 const DEFAULT_GRACE_TURNS = SUBAGENTS_SETTING_DEFAULTS.graceTurns;
-const DEFAULT_CONSUMED_RETENTION_MINUTES = SUBAGENTS_SETTING_DEFAULTS.consumedSessionRetentionMinutes;
-const DEFAULT_UNCONSUMED_RETENTION_MINUTES = SUBAGENTS_SETTING_DEFAULTS.unconsumedSessionRetentionMinutes;
 const DEFAULT_ABORT_ALL_ON_INTERRUPT = SUBAGENTS_SETTING_DEFAULTS.abortAllOnInterrupt;
 const DEFAULT_MID_RUN_UPDATES = SUBAGENTS_SETTING_DEFAULTS.midRunUpdates;
 
@@ -107,8 +96,6 @@ export class SettingsManager {
   private _defaultMaxTurns: number | undefined = undefined;
   private _graceTurns: number = DEFAULT_GRACE_TURNS;
   private _maxConcurrent: number = DEFAULT_MAX_CONCURRENT;
-  private _consumedSessionRetentionMinutes: number = DEFAULT_CONSUMED_RETENTION_MINUTES;
-  private _unconsumedSessionRetentionMinutes: number = DEFAULT_UNCONSUMED_RETENTION_MINUTES;
   private _abortAllOnInterrupt: boolean = DEFAULT_ABORT_ALL_ON_INTERRUPT;
   private _midRunUpdates: boolean = DEFAULT_MID_RUN_UPDATES;
   private _excludedExtensionPackages: string[] = [];
@@ -141,8 +128,6 @@ export class SettingsManager {
     this._defaultMaxTurns = undefined;
     this._graceTurns = DEFAULT_GRACE_TURNS;
     this._maxConcurrent = DEFAULT_MAX_CONCURRENT;
-    this._consumedSessionRetentionMinutes = DEFAULT_CONSUMED_RETENTION_MINUTES;
-    this._unconsumedSessionRetentionMinutes = DEFAULT_UNCONSUMED_RETENTION_MINUTES;
     this._abortAllOnInterrupt = DEFAULT_ABORT_ALL_ON_INTERRUPT;
     this._midRunUpdates = DEFAULT_MID_RUN_UPDATES;
     this._excludedExtensionPackages = [];
@@ -186,24 +171,6 @@ export class SettingsManager {
 
   set maxConcurrent(n: number) {
     this._maxConcurrent = Math.max(1, n);
-  }
-
-  // ── retention windows: clamped to [1, RETENTION_MINUTES_CEILING] minutes ──
-
-  get consumedSessionRetentionMinutes(): number {
-    return this._consumedSessionRetentionMinutes;
-  }
-
-  set consumedSessionRetentionMinutes(n: number) {
-    this._consumedSessionRetentionMinutes = clampRetentionMinutes(n);
-  }
-
-  get unconsumedSessionRetentionMinutes(): number {
-    return this._unconsumedSessionRetentionMinutes;
-  }
-
-  set unconsumedSessionRetentionMinutes(n: number) {
-    this._unconsumedSessionRetentionMinutes = clampRetentionMinutes(n);
   }
 
   // ── abortAllOnInterrupt: flipped via toggleAbortAllOnInterrupt(); no normalization ──
@@ -250,10 +217,6 @@ export class SettingsManager {
     if (typeof settings.maxConcurrent === "number") this.maxConcurrent = settings.maxConcurrent;
     if (typeof settings.defaultMaxTurns === "number") this.defaultMaxTurns = settings.defaultMaxTurns;
     if (typeof settings.graceTurns === "number") this.graceTurns = settings.graceTurns;
-    if (typeof settings.consumedSessionRetentionMinutes === "number")
-      this.consumedSessionRetentionMinutes = settings.consumedSessionRetentionMinutes;
-    if (typeof settings.unconsumedSessionRetentionMinutes === "number")
-      this.unconsumedSessionRetentionMinutes = settings.unconsumedSessionRetentionMinutes;
     if (typeof settings.abortAllOnInterrupt === "boolean")
       this._abortAllOnInterrupt = settings.abortAllOnInterrupt;
     if (typeof settings.midRunUpdates === "boolean") this._midRunUpdates = settings.midRunUpdates;
@@ -284,8 +247,6 @@ export class SettingsManager {
       maxConcurrent: this._maxConcurrent,
       defaultMaxTurns: this._defaultMaxTurns ?? 0,
       graceTurns: this._graceTurns,
-      consumedSessionRetentionMinutes: this._consumedSessionRetentionMinutes,
-      unconsumedSessionRetentionMinutes: this._unconsumedSessionRetentionMinutes,
       abortAllOnInterrupt: this._abortAllOnInterrupt,
       midRunUpdates: this._midRunUpdates,
     };
@@ -324,18 +285,6 @@ export class SettingsManager {
   applyGraceTurns(n: number): { message: string; level: "info" | "warning" } {
     this.graceTurns = n; // setter normalizes: max(1, n)
     return this.saveAndNotify(`Grace turns set to ${this.graceTurns}`);
-  }
-
-  /** Set the consumed-session retention window (minutes), persist, and return the toast. */
-  applyConsumedSessionRetentionMinutes(n: number): { message: string; level: "info" | "warning" } {
-    this.consumedSessionRetentionMinutes = n; // setter normalizes: clamp [1, ceiling]
-    return this.saveAndNotify(`Consumed-session retention set to ${this.consumedSessionRetentionMinutes} min`);
-  }
-
-  /** Set the unconsumed-session retention window (minutes), persist, and return the toast. */
-  applyUnconsumedSessionRetentionMinutes(n: number): { message: string; level: "info" | "warning" } {
-    this.unconsumedSessionRetentionMinutes = n; // setter normalizes: clamp [1, ceiling]
-    return this.saveAndNotify(`Unconsumed-session retention set to ${this.unconsumedSessionRetentionMinutes} min`);
   }
 
   /**
@@ -383,18 +332,6 @@ export class SettingsManager {
 const MAX_CONCURRENT_CEILING = SUBAGENTS_SETTING_LIMITS.maxConcurrent;
 const MAX_TURNS_CEILING = SUBAGENTS_SETTING_LIMITS.defaultMaxTurns;
 const GRACE_TURNS_CEILING = SUBAGENTS_SETTING_LIMITS.graceTurns;
-// Retention windows: 1 minute floor, two-week ceiling (60 * 24 * 14).
-const RETENTION_MINUTES_CEILING = SUBAGENTS_SETTING_LIMITS.retentionMinutes;
-
-/** Clamp a retention window to [1, RETENTION_MINUTES_CEILING] minutes. */
-function clampRetentionMinutes(n: number): number {
-  return Math.min(RETENTION_MINUTES_CEILING, Math.max(1, n));
-}
-
-/** True when a value is an integer minute count within the accepted retention range. */
-function isRetentionMinutes(n: unknown): n is number {
-  return Number.isInteger(n) && (n as number) >= 1 && (n as number) <= RETENTION_MINUTES_CEILING;
-}
 
 /** Drop fields that don't match the expected shape. Silent — garbage becomes absent. */
 /**
@@ -430,12 +367,6 @@ function sanitize(raw: unknown): SubagentsSettings {
     (r.graceTurns as number) <= GRACE_TURNS_CEILING
   ) {
     out.graceTurns = r.graceTurns as number;
-  }
-  if (isRetentionMinutes(r.consumedSessionRetentionMinutes)) {
-    out.consumedSessionRetentionMinutes = r.consumedSessionRetentionMinutes;
-  }
-  if (isRetentionMinutes(r.unconsumedSessionRetentionMinutes)) {
-    out.unconsumedSessionRetentionMinutes = r.unconsumedSessionRetentionMinutes;
   }
   if (typeof r.abortAllOnInterrupt === "boolean") {
     out.abortAllOnInterrupt = r.abortAllOnInterrupt;

@@ -51,7 +51,7 @@ describe("runForeground", () => {
 		expect(result.content[0].text).toContain('resume: "agent-5"');
 	});
 
-	it("reports a question a released session cannot answer, without naming a resume", async () => {
+	it("reports a question whose session left no transcript, without naming a resume", async () => {
 		const { manager } = createToolDeps();
 		const released = createTestSubagent({
 			id: "agent-5",
@@ -65,9 +65,7 @@ describe("runForeground", () => {
 		const result = await runForeground(manager, makeParams(), undefined, undefined);
 
 		expect(result.content[0].text).toContain("Which config?");
-		expect(result.content[0].text).toContain(
-			"its session was released after its retention window",
-		);
+		expect(result.content[0].text).toContain("it has no active session");
 		expect(result.content[0].text).not.toContain("resume:");
 	});
 

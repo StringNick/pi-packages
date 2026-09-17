@@ -782,11 +782,20 @@ describe("Subagent — resumeRefusal", () => {
 		expect(createTestSubagent({ status: "queued" }).resumeRefusal).toBe("no-session");
 	});
 
-	it("reports session-released once the retention sweep has freed the session", async () => {
+	it("admits an evicted session with transcript pointers — resume rehydrates", async () => {
+		const agent = createTestSubagent({ sessionReady: true, outputFile: "/tasks/child.jsonl" });
+		await agent.releaseSession();
+		expect(agent.isSessionReady()).toBe(false);
+		expect(agent.canRehydrate()).toBe(true);
+		expect(agent.resumeRefusal).toBeUndefined();
+	});
+
+	it("reports no-session for an evicted session with no transcript pointers", async () => {
 		const agent = createRunnableAgent();
 		await agent.run();
 		await agent.releaseSession();
-		expect(agent.resumeRefusal).toBe("session-released");
+		expect(agent.canRehydrate()).toBe(false);
+		expect(agent.resumeRefusal).toBe("no-session");
 	});
 
 	it("reports workspace-disposed while the session is still live", async () => {
@@ -796,12 +805,16 @@ describe("Subagent — resumeRefusal", () => {
 		expect(agent.resumeRefusal).toBe("workspace-disposed");
 	});
 
-	it("prefers the released session over the workspace when both are gone", async () => {
+	it("reports workspace-disposed for an evicted session whose workspace is gone", async () => {
 		const agent = createRunnableAgent({ workspaceProvider: makeWorkspaceProvider(makeWorkspace("/ws/dir")) });
 		await agent.run();
 		await agent.releaseSession();
 		expect(agent.workspaceDisposed).toBe(true);
-		expect(agent.resumeRefusal).toBe("session-released");
+		// The run stub persisted no transcript: nothing to rehydrate, so no-session.
+		expect(agent.resumeRefusal).toBe("no-session");
+		// With transcript pointers the session check passes and the workspace rules.
+		agent.markSessionEvicted("/tasks/child.jsonl", "child-1");
+		expect(agent.resumeRefusal).toBe("workspace-disposed");
 	});
 
 	it("leaves a session-ready test fixture resumable", () => {
@@ -1872,9 +1885,11 @@ describe("Subagent.resume() — error handling", () => {
 		expect(agent.toolUses).toBe(0);
 	});
 
-	it("throws when no session exists", async () => {
+	it("captures a missing session as a resume error without throwing", async () => {
 		const agent = makeSubagent();
-		await expect(agent.resume("more")).rejects.toThrow(/missing session/);
+		await agent.resume("more");
+		expect(agent.status).toBe("error");
+		expect(agent.error).toMatch(/missing session/);
 	});
 });
 

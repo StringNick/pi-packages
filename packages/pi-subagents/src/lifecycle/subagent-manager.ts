@@ -8,14 +8,18 @@
 
 import { randomUUID } from "node:crypto";
 import type { Model } from "@earendil-works/pi-ai";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { type BackgroundRequest, resolveBackgroundMode } from "#src/config/invocation-config";
+import { THINKING_LEVELS } from "#src/config/thinking-level";
 import { debugLog } from "#src/debug";
 import type { ConcurrencyLimiter } from "#src/lifecycle/concurrency-limiter";
 import type { CreateSubagentSessionParams } from "#src/lifecycle/create-subagent-session";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import { type ResumeRefusal, Subagent, type SubagentLifecycleObserver } from "#src/lifecycle/subagent";
 import type { SubagentSession } from "#src/lifecycle/subagent-session";
-import { SubagentState } from "#src/lifecycle/subagent-state";
+import { isActiveStatus, SubagentState, type SubagentStatus } from "#src/lifecycle/subagent-state";
+import { resolveModel } from "#src/session/model-resolver";
+import { ownsSubagentSessionFile } from "#src/session/session-storage";
 import type { WorkspaceProvider } from "#src/lifecycle/workspace";
 
 import type { RunConfig } from "#src/runtime";
@@ -72,63 +76,114 @@ interface ResolvedSpawn {
 }
 
 /**
- * Session-retention windows (minutes). `SettingsManager` satisfies this
- * structurally; a live getter (`getRetentionPolicy`) lets the sweep read the
- * current values without a construction-time settings dependency.
+ * Idle time after which a terminal record's heavy child session is evicted from
+ * memory. Hardcoded memory hygiene, not a lifetime: the child transcript stays
+ * on disk for the parent's whole life, and resume transparently rehydrates it.
+ * There is no user-facing retention setting by design (durable subagents).
  */
-export interface RetentionPolicy {
-  readonly consumedSessionRetentionMinutes: number;
-  readonly unconsumedSessionRetentionMinutes: number;
-}
-
-const DEFAULT_RETENTION_POLICY: RetentionPolicy = {
-  consumedSessionRetentionMinutes: 10,
-  unconsumedSessionRetentionMinutes: 720,
-};
+export const SESSION_EVICT_IDLE_MS = 10 * 60_000;
 
 /**
- * Only what the retention rule reads. Narrower than `Subagent` so the rule
- * stays a plain function over four facts, testable without spawning an agent.
+ * One durable record to materialize after a backend restart. Mirrors the
+ * `subagents:record` custom entries the observer appends to the parent JSONL —
+ * the only store; the manager map is a cache.
  */
-export interface RetentionCandidate {
-  consumed: boolean;
-  completedAt: number | undefined;
-  consumedAt: number | undefined;
-  pendingQuestion: string | undefined;
+export interface RestoredAgentInit {
+  id: string;
+  type: string;
+  description: string;
+  status: SubagentStatus;
+  startedAt?: number;
+  completedAt?: number;
+  result?: string;
+  error?: string;
+  pendingQuestion?: string;
+  isBackground: boolean;
+  /** Provider-qualified model id (`provider/id`), resolved at restore time. */
+  modelId?: string;
+  thinkingLevel?: string;
+  maxTurns?: number;
+  /** Child transcript pointers — absent when the run never created a session. */
+  outputFile?: string;
+  childSessionId?: string;
+  toolUses?: number;
+  turnCount?: number;
 }
 
-/** When a terminal record's session-release window opened, and how long it runs. */
-export interface RetentionWindow {
-  referenceAt: number;
-  windowMinutes: number;
+const RESTORABLE_STATUSES: readonly SubagentStatus[] = [
+  "queued",
+  "running",
+  "completed",
+  "steered",
+  "aborted",
+  "stopped",
+  "error",
+];
+
+function boundedRecordText(value: unknown, max: number): string | undefined {
+  return typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= max &&
+    !value.includes("\0")
+    ? value
+    : undefined;
+}
+
+function recordCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 /**
- * Pick the retention window for one terminal record.
- *
- * A collected outcome releases on the short window, measured from the later of
- * completion and collection, so a late read still gets a full resume window; an
- * uncollected one holds until the long safety cap.
- *
- * A record carrying an unanswered question is not collected, whatever
- * `consumed` says: the parent has read the question but has not answered it,
- * and the answer is delivered by resuming the very session the short window
- * would release.
+ * Parse durable `subagents:record` entries from a parent session branch into
+ * restore inputs. Last record per id wins. Corrupt entries are skipped —
+ * restore is best-effort; the transcripts stay on disk regardless.
  */
-export function resolveRetentionWindow(
-  record: RetentionCandidate,
-  policy: RetentionPolicy,
-): RetentionWindow {
-  if (record.consumed && record.pendingQuestion === undefined) {
-    return {
-      referenceAt: Math.max(record.completedAt ?? 0, record.consumedAt ?? 0),
-      windowMinutes: policy.consumedSessionRetentionMinutes,
+export function restoredAgentsFromEntries(entries: readonly SessionEntry[]): RestoredAgentInit[] {
+  const records = new Map<string, RestoredAgentInit>();
+  for (const entry of entries) {
+    if (entry.type !== "custom" || entry.customType !== "subagents:record") continue;
+    const data: unknown = (entry as { data?: unknown }).data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) continue;
+    const fields = data as Record<string, unknown>;
+    const id = boundedRecordText(fields.id, 256);
+    const type = boundedRecordText(fields.type, 128);
+    const description = boundedRecordText(fields.description, 16_384);
+    const statusRaw = boundedRecordText(fields.status, 64);
+    if (!id || !type || !description || !statusRaw) continue;
+    if (!(RESTORABLE_STATUSES as readonly string[]).includes(statusRaw)) continue;
+    const init: RestoredAgentInit = {
+      id,
+      type,
+      description: description.slice(0, 160),
+      status: statusRaw as SubagentStatus,
+      isBackground: fields.isBackground === true,
     };
+    const startedAt = recordCount(fields.startedAt);
+    if (startedAt !== undefined) init.startedAt = startedAt;
+    const completedAt = recordCount(fields.completedAt);
+    if (completedAt !== undefined) init.completedAt = completedAt;
+    if (typeof fields.result === "string" && fields.result.length > 0) init.result = fields.result;
+    if (typeof fields.error === "string" && fields.error.length > 0) init.error = fields.error;
+    const pendingQuestion = boundedRecordText(fields.pendingQuestion, 8_192);
+    if (pendingQuestion !== undefined) init.pendingQuestion = pendingQuestion;
+    const outputFile = boundedRecordText(fields.outputFile, 8_192);
+    if (outputFile !== undefined) init.outputFile = outputFile;
+    const childSessionId = boundedRecordText(fields.childSessionId, 256);
+    if (childSessionId !== undefined) init.childSessionId = childSessionId;
+    const modelId = boundedRecordText(fields.modelId, 256);
+    if (modelId !== undefined) init.modelId = modelId;
+    const thinkingLevel = boundedRecordText(fields.thinkingLevel, 64);
+    if (thinkingLevel !== undefined) init.thinkingLevel = thinkingLevel;
+    const maxTurns = recordCount(fields.maxTurns);
+    if (maxTurns !== undefined) init.maxTurns = maxTurns;
+    const toolUses = recordCount(fields.toolUses);
+    if (toolUses !== undefined) init.toolUses = toolUses;
+    const turnCount = recordCount(fields.turnCount);
+    if (turnCount !== undefined) init.turnCount = turnCount;
+    records.delete(id);
+    records.set(id, init);
   }
-  return {
-    referenceAt: record.completedAt ?? 0,
-    windowMinutes: policy.unconsumedSessionRetentionMinutes,
-  };
+  return [...records.values()];
 }
 
 /** Observer interface for agent lifecycle notifications. */
@@ -173,8 +228,11 @@ export interface SubagentManagerOptions {
   /** Base working directory handed to a workspace provider (the parent cwd). */
   baseCwd: string | (() => string);
   getRunConfig?: () => RunConfig;
-  /** Live accessor for the session-retention windows; defaults applied when absent. */
-  getRetentionPolicy?: () => RetentionPolicy;
+  /**
+   * Fresh parent snapshot for executions built after a backend restart.
+   * Absent → restore is skipped (rehydration needs the live parent registry).
+   */
+  getParentSnapshot?: () => ParentSnapshot | undefined;
   observer?: SubagentManagerObserver;
   assertAdmission?(): void;
   /** Agent registry, consulted to canonicalize a spawn's type and resolve its config. */
@@ -237,7 +295,7 @@ export class SubagentManager {
   private readonly limiter: ConcurrencyLimiter;
   private readonly baseCwd: string | (() => string);
   private getRunConfig?: () => RunConfig;
-  private getRetentionPolicy?: () => RetentionPolicy;
+  private getParentSnapshot?: () => ParentSnapshot | undefined;
   private readonly registry: SpawnTypeResolver;
   private _workspaceProvider?: WorkspaceProvider;
 
@@ -253,12 +311,11 @@ export class SubagentManager {
     this.observer = options.observer;
     this.assertAdmission = options.assertAdmission;
     this.getRunConfig = options.getRunConfig;
-    this.getRetentionPolicy = options.getRetentionPolicy;
+    this.getParentSnapshot = options.getParentSnapshot;
     this.registry = options.registry;
-    // Periodically release the heavy session of terminal agents past their
-    // retention window. The lightweight record (with its result) is kept for the
-    // session lifetime, so get_subagent_result never misses in-session.
-    this.sweepInterval = setInterval(() => this.sweep(), 60_000);
+    // Periodically evict the heavy session of idle terminal agents. Records and
+    // transcripts are durable (parent JSONL + tasks/ files); resume rehydrates.
+    this.sweepInterval = setInterval(() => this.evictIdleSessions(), 60_000);
     this.sweepInterval.unref();
   }
 
@@ -490,47 +547,116 @@ export class SubagentManager {
   }
 
   /**
-   * Remove a record from the map and tear its session down.
-   * The map is updated first so the record is unreachable while its child's
-   * extensions shut down.
+   * Evict the heavy session of idle terminal agents. Records and transcripts
+   * stay durable; resume rehydrates from disk. Runs on an interval with no one
+   * to await it — fire-and-forget, and releaseSession() already swallows a
+   * failing teardown.
    */
-  private removeRecord(id: string, record: Subagent): Promise<void> {
-    return this.trackCleanup(async () => {
-      this.agents.delete(id);
-      await record.disposeSession();
-    });
-  }
-
-  /**
-   * Release the heavy session of any terminal agent past its retention window.
-   * The record (with its result) is retained for the session lifetime; only the
-   * live `AgentSession` is freed. `resolveRetentionWindow` owns which window
-   * applies.
-   */
-  private sweep() {
-    const policy = this.getRetentionPolicy?.() ?? DEFAULT_RETENTION_POLICY;
-    const now = Date.now();
+  evictIdleSessions(now: number = Date.now()): void {
     for (const record of this.agents.values()) {
       if (record.isActive() || record.executionPending) continue;
-      if (!record.isSessionReady()) continue; // already released, or never had a session
-      const { referenceAt, windowMinutes } = resolveRetentionWindow(record, policy);
-      // Fire-and-forget: the sweep runs on an interval with no one to await it,
-      // and Subagent.releaseSession() already swallows a failing teardown.
-      if (now - referenceAt >= windowMinutes * 60_000) void this.trackCleanup(() => record.releaseSession()).catch(error => debugLog("session retention cleanup", error));
+      if (!record.isSessionReady()) continue; // already evicted, or never had a session
+      const completedAt = record.completedAt ?? 0;
+      if (now - completedAt >= SESSION_EVICT_IDLE_MS) {
+        void this.trackCleanup(() => record.releaseSession()).catch(error => debugLog("session eviction cleanup", error));
+      }
     }
   }
 
   /**
-   * Remove all completed/stopped/errored records immediately.
-   * Called on session start/switch so tasks from a prior session don't persist.
+   * Evict every terminal record's heavy session now, keeping the records.
+   * Session-switch hygiene: drop memory, never durability.
    */
-  async clearCompleted(): Promise<void> {
+  async evictTerminalSessions(): Promise<void> {
     const teardowns: Promise<void>[] = [];
-    for (const [id, record] of this.agents) {
+    for (const record of this.agents.values()) {
       if (record.isActive() || record.executionPending) continue;
-      teardowns.push(this.removeRecord(id, record));
+      if (!record.isSessionReady()) continue;
+      teardowns.push(this.trackCleanup(() => record.releaseSession()));
     }
     await Promise.all(teardowns);
+  }
+
+  /**
+   * Materialize durable records after a backend restart from the parent JSONL
+   * `subagents:record` entries. Records arrive evicted (no live session); the
+   * first resume rehydrates the child transcript from disk. Existing ids win —
+   * restore never replaces a live record. Returns how many were materialized.
+   *
+   * A saved non-terminal status means the backend died mid-run: the transcript
+   * holds every committed turn, so the record returns as an interrupted error
+   * that resume can continue. Entries without transcript pointers and without a
+   * terminal state are skipped — there is nothing to rehydrate or display.
+   */
+  restoreAgents(parentSession: ParentSessionInfo, inits: readonly RestoredAgentInit[]): number {
+    const snapshot = this.getParentSnapshot?.();
+    if (!snapshot) {
+      debugLog("subagent restore skipped", "no parent snapshot");
+      return 0;
+    }
+    let restored = 0;
+    for (const init of inits) {
+      if (!init.id || !init.type || !init.description) continue;
+      if (this.agents.has(init.id)) continue;
+      const pointers = init.outputFile && init.childSessionId
+        && ownsSubagentSessionFile(parentSession.parentSessionFile, init.outputFile)
+        ? { outputFile: init.outputFile, childSessionId: init.childSessionId }
+        : undefined;
+      let status = init.status;
+      let error = init.error;
+      if (isActiveStatus(status)) {
+        if (!pointers) continue;
+        status = "error";
+        error = "Run was interrupted by a backend restart; resume to continue it.";
+      }
+      const thinkingLevel = init.thinkingLevel && (THINKING_LEVELS as readonly string[]).includes(init.thinkingLevel)
+        ? (init.thinkingLevel as ThinkingLevel)
+        : undefined;
+      let model: Model<any> | undefined;
+      if (init.modelId) {
+        try {
+          const resolved = resolveModel(init.modelId, snapshot.modelRegistry);
+          model = typeof resolved === "string" ? undefined : resolved;
+        } catch {
+          model = undefined;
+        }
+      }
+      const record = new Subagent({
+        id: init.id,
+        type: init.type,
+        description: init.description,
+        isBackground: init.isBackground,
+        state: new SubagentState({
+          status,
+          result: init.result,
+          error,
+          pendingQuestion: init.pendingQuestion,
+          startedAt: init.startedAt,
+          completedAt: init.completedAt,
+          toolUses: init.toolUses,
+          turnCount: init.turnCount,
+        }),
+        execution: {
+          createSubagentSession: this.createSubagentSession,
+          snapshot,
+          prompt: "",
+          baseCwd: snapshot.cwd,
+          observer: this.buildObserver({
+            description: init.description,
+            background: { kind: "explicit", isBackground: init.isBackground },
+          }),
+          getRunConfig: this.getRunConfig,
+          model,
+          maxTurns: init.maxTurns,
+          thinkingLevel,
+          parentSession,
+        },
+      });
+      if (pointers) record.markSessionEvicted(pointers.outputFile, pointers.childSessionId);
+      this.agents.set(init.id, record);
+      restored++;
+    }
+    return restored;
   }
 
   /** Whether any agents are still running or queued. */

@@ -7,7 +7,8 @@ describe("SessionLifecycleHandler", () => {
   let manager: LifecycleManager;
   let mockSetSessionContext: ReturnType<typeof vi.fn<LifecycleRuntime["setSessionContext"]>>;
   let mockClearSessionContext: ReturnType<typeof vi.fn<LifecycleRuntime["clearSessionContext"]>>;
-  let mockClearCompleted: ReturnType<typeof vi.fn<LifecycleManager["clearCompleted"]>>;
+  let mockEvictTerminalSessions: ReturnType<typeof vi.fn<LifecycleManager["evictTerminalSessions"]>>;
+  let mockRestoreAgents: ReturnType<typeof vi.fn<LifecycleManager["restoreAgents"]>>;
   let mockAbortAll: ReturnType<typeof vi.fn<LifecycleManager["abortAll"]>>;
   let mockDispose: ReturnType<typeof vi.fn<LifecycleManager["dispose"]>>;
   let mockDisposeNotifications: ReturnType<typeof vi.fn<() => void>>;
@@ -17,7 +18,8 @@ describe("SessionLifecycleHandler", () => {
   beforeEach(() => {
     mockSetSessionContext = vi.fn();
     mockClearSessionContext = vi.fn();
-    mockClearCompleted = vi.fn(() => Promise.resolve());
+    mockEvictTerminalSessions = vi.fn(() => Promise.resolve());
+    mockRestoreAgents = vi.fn(() => 0);
     mockAbortAll = vi.fn();
     mockDispose = vi.fn(() => Promise.resolve());
     mockDisposeNotifications = vi.fn();
@@ -28,7 +30,8 @@ describe("SessionLifecycleHandler", () => {
       clearSessionContext: mockClearSessionContext,
     };
     manager = {
-      clearCompleted: mockClearCompleted,
+      evictTerminalSessions: mockEvictTerminalSessions,
+      restoreAgents: mockRestoreAgents,
       abortAll: mockAbortAll,
       dispose: mockDispose,
     };
@@ -42,57 +45,100 @@ describe("SessionLifecycleHandler", () => {
   });
 
   describe("handleSessionStart", () => {
-    it("sets session context and clears completed agents", async () => {
-      const ctx = { cwd: "/some/path" };
+    it("sets session context and restores durable records from parent entries", async () => {
+      const entries = [
+        {
+          type: "custom",
+          id: "e1",
+          parentId: null,
+          timestamp: "2026-01-01T00:00:00.000Z",
+          customType: "subagents:record",
+          data: {
+            id: "a1",
+            type: "general-purpose",
+            description: "old work",
+            status: "completed",
+            outputFile: "/tmp/parent/tasks/x.jsonl",
+            childSessionId: "child-1",
+          },
+        },
+      ];
+      const ctx = {
+        sessionManager: {
+          getSessionId: () => "parent-1",
+          getSessionFile: () => "/tmp/parent.jsonl",
+          getEntries: () => entries,
+        },
+      };
 
       await handler.handleSessionStart({}, ctx);
 
       expect(runtime.setSessionContext).toHaveBeenCalledWith(ctx);
-      expect(manager.clearCompleted).toHaveBeenCalled();
+      expect(manager.restoreAgents).toHaveBeenCalledWith(
+        { parentSessionId: "parent-1", parentSessionFile: "/tmp/parent.jsonl" },
+        [
+          expect.objectContaining({
+            id: "a1",
+            status: "completed",
+            outputFile: "/tmp/parent/tasks/x.jsonl",
+            childSessionId: "child-1",
+          }),
+        ],
+      );
     });
 
-    it("sets context before clearing completed", async () => {
+    it("sets context before restoring", async () => {
       const callOrder: string[] = [];
       mockSetSessionContext.mockImplementation(() => {
         callOrder.push("setSessionContext");
       });
-      mockClearCompleted.mockImplementation(() => {
-        callOrder.push("clearCompleted");
-        return Promise.resolve();
+      mockRestoreAgents.mockImplementation(() => {
+        callOrder.push("restoreAgents");
+        return 0;
       });
 
-      await handler.handleSessionStart({}, {});
+      await handler.handleSessionStart(
+        {},
+        { sessionManager: { getSessionId: () => "p", getSessionFile: () => undefined, getEntries: () => [] } },
+      );
 
-      expect(callOrder).toEqual(["setSessionContext", "clearCompleted"]);
+      expect(callOrder).toEqual(["setSessionContext", "restoreAgents"]);
     });
 
-    it("resolves only after the prior session's children have shut down", async () => {
-      const cleared = Promise.withResolvers<void>(); // eslint-disable-line @typescript-eslint/no-invalid-void-type -- Promise.withResolvers<void> is valid; rule does not allow void in generic fn call type args
-      mockClearCompleted.mockReturnValue(cleared.promise);
+    it("skips restore when the context carries no session manager", async () => {
+      await handler.handleSessionStart({}, { cwd: "/some/path" });
 
-      let settled = false;
-      const pending = handler.handleSessionStart({}, {}).then(() => {
-        settled = true;
-      });
-      await Promise.resolve();
-      expect(settled).toBe(false);
+      expect(runtime.setSessionContext).toHaveBeenCalled();
+      expect(manager.restoreAgents).not.toHaveBeenCalled();
+    });
 
-      cleared.resolve();
-      await pending;
-      expect(settled).toBe(true);
+    it("skips restore when entries are unreadable", async () => {
+      const ctx = {
+        sessionManager: {
+          getSessionId: () => "parent-1",
+          getSessionFile: () => undefined,
+          getEntries: () => {
+            throw new Error("gone");
+          },
+        },
+      };
+
+      await handler.handleSessionStart({}, ctx);
+
+      expect(manager.restoreAgents).not.toHaveBeenCalled();
     });
   });
 
   describe("handleSessionBeforeSwitch", () => {
-    it("clears completed agents", async () => {
+    it("evicts terminal sessions but keeps the records", async () => {
       await handler.handleSessionBeforeSwitch();
 
-      expect(manager.clearCompleted).toHaveBeenCalled();
+      expect(manager.evictTerminalSessions).toHaveBeenCalled();
     });
 
-    it("resolves only after the cleared children have shut down", async () => {
-      const cleared = Promise.withResolvers<void>(); // eslint-disable-line @typescript-eslint/no-invalid-void-type -- Promise.withResolvers<void> is valid; rule does not allow void in generic fn call type args
-      mockClearCompleted.mockReturnValue(cleared.promise);
+    it("resolves only after the evicted children have shut down", async () => {
+      const evicted = Promise.withResolvers<void>(); // eslint-disable-line @typescript-eslint/no-invalid-void-type -- Promise.withResolvers<void> is valid; rule does not allow void in generic fn call type args
+      mockEvictTerminalSessions.mockReturnValue(evicted.promise);
 
       let settled = false;
       const pending = handler.handleSessionBeforeSwitch().then(() => {
@@ -101,7 +147,7 @@ describe("SessionLifecycleHandler", () => {
       await Promise.resolve();
       expect(settled).toBe(false);
 
-      cleared.resolve();
+      evicted.resolve();
       await pending;
       expect(settled).toBe(true);
     });

@@ -4,6 +4,7 @@ import type { ChildLifecyclePublisher } from "#src/lifecycle/child-lifecycle";
 import type { AssemblerIO } from "#src/session/session-config";
 import type { AgentConfig, PromptInheritance, ShellExec } from "#src/types";
 import { createMockSession } from "#test/helpers/mock-session";
+import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
 /** Default AgentConfig returned by createAgentLookup. Matches the Explore stub used in factory tests. */
 const DEFAULT_AGENT_CONFIG: AgentConfig = {
@@ -40,6 +41,13 @@ export function createSubagentSessionIO() {
 			newSession: vi.fn(),
 			getSessionFile: vi.fn().mockReturnValue("/sessions/child.jsonl"),
 			getSessionId: vi.fn().mockReturnValue("child-session-id"),
+			getHeader: vi.fn(() => ({ cwd: STUB_SNAPSHOT.cwd })),
+		}),
+		openSessionManager: vi.fn().mockReturnValue({
+			newSession: vi.fn(),
+			getSessionFile: vi.fn().mockReturnValue("/sessions/child.jsonl"),
+			getSessionId: vi.fn().mockReturnValue("child-session-id"),
+			getHeader: vi.fn(() => ({ cwd: STUB_SNAPSHOT.cwd })),
 		}),
 		createSettingsManager: vi.fn().mockReturnValue({}),
 		// Identity by default: no package exclusions, so children inherit everything.

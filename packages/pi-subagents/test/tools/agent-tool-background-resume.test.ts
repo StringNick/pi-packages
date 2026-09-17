@@ -140,7 +140,7 @@ describe("AgentTool background resume", () => {
 	});
 
 	describe("refused admission", () => {
-		it.each(["unknown-agent", "still-running", "session-released", "no-session", "workspace-disposed"] as const)(
+		it.each(["unknown-agent", "still-running", "no-session", "workspace-disposed"] as const)(
 			"uses the same refusal wording as foreground for %s", async (reason) => {
 				const deps = createToolDeps();
 				mockResumeRefusal(deps, reason);

@@ -12,6 +12,7 @@
  * createSession), so threading the provider through here would be a relay smell.
  */
 
+import { resolve } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import {
   type AgentSession,
@@ -28,6 +29,7 @@ import type { EnvInfo } from "#src/session/env";
 import type { ModelRegistry } from "#src/session/model-resolver";
 import { NotifyParentTool, type UpdateAnnouncer } from "#src/session/notify-parent-tool";
 import { type AssemblerIO, assembleSessionConfig } from "#src/session/session-config";
+import { ownsSubagentSessionFile } from "#src/session/session-storage";
 import type {
   ParentSessionInfo,
   PromptInheritance,
@@ -57,6 +59,7 @@ export interface SessionManagerLike {
   newSession(opts: { parentSession?: string }): void;
   getSessionFile(): string | undefined;
   getSessionId(): string;
+  getHeader(): { parentSession?: string; cwd: string } | null;
 }
 
 /** Options passed to EnvironmentIO/SessionFactoryIO methods. */
@@ -116,6 +119,12 @@ export interface EnvironmentIO {
 export interface SessionFactoryIO {
   createResourceLoader: (opts: ResourceLoaderOptions) => ResourceLoaderLike;
   createSessionManager: (cwd: string, sessionDir: string) => SessionManagerLike;
+  /**
+   * Reopen an existing child transcript for resume. The durable record keeps
+   * the child JSONL on disk for the parent's whole life; eviction and backend
+   * restarts only drop the in-memory session, never the file.
+   */
+  openSessionManager: (outputFile: string, cwd: string, sessionDir: string) => SessionManagerLike;
   createSettingsManager: (cwd: string, agentDir: string) => SettingsManager;
   /**
    * Settings view the child's resource loader resolves packages from.
@@ -181,6 +190,14 @@ export interface CreateSubagentSessionParams {
    * installs no update tool.
    */
   notifyParent?: UpdateAnnouncer;
+  /**
+   * Rehydrate instead of spawn: reopen this persisted child transcript and
+   * continue it. `childSessionId` must match the reopened file's header.
+   */
+  resumeFrom?: {
+    outputFile: string;
+    childSessionId: string;
+  };
 }
 
 /**
@@ -217,8 +234,19 @@ export async function createSubagentSession(
   if (host && !params.runId) throw new Error("A hosted child requires a native run id");
   deps.lifecycle.spawning({ agentName: type, parentSessionId });
 
-  // Resolve working directory upfront - needed for detectEnv before assembly.
-  const effectiveCwd = params.cwd ?? snapshot.cwd;
+  // Resolve the persisted child's cwd before host trust/resource/tool composition.
+  // The header, not a restored parent's current snapshot, owns resume's cwd.
+  const resumeFrom = params.resumeFrom;
+  let effectiveCwd = params.cwd ?? snapshot.cwd;
+  if (resumeFrom) {
+    if (params.parentSession?.parentSessionFile
+      && !ownsSubagentSessionFile(params.parentSession.parentSessionFile, resumeFrom.outputFile)) {
+      throw new Error("Child transcript is outside the parent's owned storage");
+    }
+    const reopened = deps.io.openSessionManager(resumeFrom.outputFile, effectiveCwd,
+      deps.io.deriveSessionDir(params.parentSession?.parentSessionFile, effectiveCwd));
+    effectiveCwd = validateResumedSession(reopened, resumeFrom.childSessionId, parentSessionId).cwd;
+  }
   const io = host ? {
     ...deps.io,
     ...await host.host.createSessionFactory(
@@ -242,7 +270,7 @@ export async function createSubagentSession(
       resolvePromptInheritance: deps.resolvePromptInheritance,
     },
     {
-      cwd: params.cwd,
+      cwd: effectiveCwd,
       model: params.model,
       thinkingLevel: params.thinkingLevel,
     },
@@ -250,6 +278,20 @@ export async function createSubagentSession(
     deps.registry,
     io.assemblerIO,
   );
+
+  const sessionDir = io.deriveSessionDir(params.parentSession?.parentSessionFile, cfg.effectiveCwd);
+  const sessionManager = resumeFrom
+    ? io.openSessionManager(resumeFrom.outputFile, cfg.effectiveCwd, sessionDir)
+    : io.createSessionManager(cfg.effectiveCwd, sessionDir);
+  if (resumeFrom) {
+    const header = validateResumedSession(sessionManager, resumeFrom.childSessionId, parentSessionId);
+    if (resolve(header.cwd) !== resolve(cfg.effectiveCwd)) {
+      throw new Error("Child transcript working directory changed during resume");
+    }
+  } else {
+    sessionManager.newSession({ parentSession: parentSessionId });
+  }
+  const sessionId = sessionManager.getSessionId();
 
   const agentDir = io.getAgentDir();
   const sessionSettings = io.createSettingsManager(cfg.effectiveCwd, agentDir);
@@ -275,14 +317,6 @@ export async function createSubagentSession(
   });
   await loader.reload();
   assertActive();
-
-  // Create a persisted SessionManager so transcripts are written in Pi's
-  // official JSONL format. Falls back to a temp directory when the parent
-  // session is not persisted (e.g. headless/API mode).
-  const sessionDir = io.deriveSessionDir(params.parentSession?.parentSessionFile, cfg.effectiveCwd);
-  const sessionManager = io.createSessionManager(cfg.effectiveCwd, sessionDir);
-  sessionManager.newSession({ parentSession: params.parentSession?.parentSessionId });
-  const sessionId = sessionManager.getSessionId();
 
   const childTools = buildChildTools(params);
   const { session } = await io.createSession({
@@ -354,4 +388,16 @@ export async function createSubagentSession(
   deps.lifecycle.bound({ sessionId, parentSessionId });
 
   return subagentSession;
+}
+
+function validateResumedSession(manager: SessionManagerLike, childSessionId: string, parentSessionId: string | undefined) {
+  if (manager.getSessionId() !== childSessionId) {
+    throw new Error(`Child transcript identity mismatch: expected ${childSessionId}, opened ${manager.getSessionId()}`);
+  }
+  const header = manager.getHeader();
+  if (!header || header.parentSession !== parentSessionId) {
+    throw new Error("Child transcript parent identity mismatch");
+  }
+  if (!header.cwd || header.cwd.includes("\0")) throw new Error("Child transcript has no valid working directory");
+  return header;
 }

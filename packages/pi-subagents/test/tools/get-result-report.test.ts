@@ -110,17 +110,17 @@ describe("formatAgentReport", () => {
 		expect(formatAgentReport(makeReport())).not.toContain("waiting on an answer");
 	});
 
-	it("reports a question the released session can no longer answer, without a resume call", () => {
+	it("reports a question the missing session can no longer answer, without a resume call", () => {
 		const text = formatAgentReport(
 			makeReport({
 				id: "agent-7",
 				pendingQuestion: "Which config?",
-				resumeRefusal: "session-released",
+				resumeRefusal: "no-session",
 			}),
 		);
 
 		expect(text).toContain("can no longer be answered");
-		expect(text).toContain("its session was released after its retention window");
+		expect(text).toContain("it has no active session");
 		expect(text).toContain("Which config?");
 		expect(text).not.toContain("resume:");
 	});

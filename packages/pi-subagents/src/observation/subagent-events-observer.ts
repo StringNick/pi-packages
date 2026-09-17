@@ -159,6 +159,10 @@ export class SubagentEventsObserver implements SubagentManagerObserver {
 			...boundedAttribution(record),
 			...(record.outputFile ? { outputFile: record.outputFile } : {}),
 			...(record.childSessionId ? { childSessionId: record.childSessionId } : {}),
+			// Restored for faithful resume after a backend restart: the pending
+			// ask-back question and the per-spawn turn cap are outcome facts.
+			...(record.pendingQuestion ? { pendingQuestion: record.pendingQuestion.slice(0, 8_192) } : {}),
+			...(record.maxTurns !== undefined ? { maxTurns: record.maxTurns } : {}),
 			...(terminal ? {
 				result: record.result,
 				error: record.error,

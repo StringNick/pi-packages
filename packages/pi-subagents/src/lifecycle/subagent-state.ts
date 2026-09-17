@@ -114,7 +114,7 @@ export class SubagentState {
 
 	// Result delivery — whether a carrier has committed to delivering the outcome.
 	// Distinct from consumption in two ways. It is revocable, where consumption is
-	// a one-way latch that also times session retention. And it is scoped to the
+	// a one-way latch. And it is scoped to the
 	// caller rather than the run: consumedAt records a delivery that has already
 	// happened, so a resume must clear it, while a claim records one that has not
 	// happened yet and stays live across the reset (see resetForResume).
@@ -329,7 +329,7 @@ export class SubagentState {
 
 	/**
 	 * Record the parent collected the outcome. Idempotent — keeps the first
-	 * collection time (??=), so a re-read does not advance the retention clock.
+	 * collection time (??=), so a re-read does not move the first-collection mark.
 	 */
 	markConsumed(at?: number): void {
 		this._consumedAt ??= at ?? Date.now();

@@ -1,5 +1,5 @@
 import { lstat, rm, rmdir } from "node:fs/promises";
-import { basename, dirname, isAbsolute } from "node:path";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { deriveSubagentSessionDir } from "#src/session/session-dir";
 
 /** Owned child storage for a persisted parent; never resolves the shared temp fallback. */
@@ -15,6 +15,16 @@ export function getSubagentSessionDirectory(parentSessionFile: string): string {
     throw new Error("Subagent storage cleanup requires an absolute parent JSONL path");
   }
   return deriveSubagentSessionDir(parentSessionFile, "");
+}
+
+/** Copied fork metadata is history, not ownership of another parent's child. */
+export function ownsSubagentSessionFile(parentSessionFile: string | undefined, childFile: string): boolean {
+  if (!parentSessionFile || !isAbsolute(childFile) || !childFile.endsWith(".jsonl")) return false;
+  try {
+    return dirname(resolve(childFile)) === resolve(getSubagentSessionDirectory(parentSessionFile));
+  } catch {
+    return false;
+  }
 }
 
 /**

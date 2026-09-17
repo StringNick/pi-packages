@@ -134,6 +134,7 @@ export default function (pi: ExtensionAPI) {
       createResourceLoader: (opts) => new DefaultResourceLoader(opts),
       deriveSessionDir: deriveSubagentSessionDir,
       createSessionManager: (cwd, dir) => SessionManager.create(cwd, dir),
+      openSessionManager: (file, cwd, dir) => SessionManager.open(file, dir, cwd),
       createSettingsManager: (cwd, dir) => SdkSettingsManager.create(cwd, dir),
       // The exclusion policy is resolved here, at the composition root, so the
       // assembly factory stays free of it and gets a ready-made settings view.
@@ -214,7 +215,9 @@ export default function (pi: ExtensionAPI) {
     observer,
     limiter,
     getRunConfig: () => settings,
-    getRetentionPolicy: () => settings,
+    // Fresh parent snapshot for executions rebuilt after a backend restart.
+    // Restore records rehydrate their child transcript from disk on resume.
+    getParentSnapshot: () => runtime.currentCtx ? runtime.buildSnapshot(false) : undefined,
     registry,
   });
 
@@ -309,7 +312,7 @@ export default function (pi: ExtensionAPI) {
   const subagentsSettings = new SubagentsSettingsHandler(settings);
 
   pi.registerCommand("subagents:settings", {
-    description: "Configure subagent settings (concurrency, turn limits, retention, interrupt policy)",
+    description: "Configure subagent settings (concurrency, turn limits, interrupt policy)",
     handler: async (_args, ctx) => {
       if (subagentHostsRequired() && !subagentSessionDeps.host) throw new Error("Hosted parent context is not bound");
       settings.assertProjectWriteAllowed();

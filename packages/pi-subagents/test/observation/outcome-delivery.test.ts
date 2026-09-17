@@ -86,10 +86,10 @@ describe("renderQuestionAffordance", () => {
 	});
 
 	describe("when a resume would be refused", () => {
-		it("reports a released session without naming a resume", () => {
-			expect(renderQuestionAffordance("agent-7", "Which config?", "session-released")).toBe(
+		it("reports a missing session without naming a resume", () => {
+			expect(renderQuestionAffordance("agent-7", "Which config?", "no-session")).toBe(
 				"\n\nThis agent ended its run with a question that can no longer be answered \u2014 " +
-					"its session was released after its retention window:\n\n  Which config?\n\n" +
+					"it has no active session:\n\n  Which config?\n\n" +
 					"Spawn a new agent with the context it needs; this one cannot be resumed.",
 			);
 		});
@@ -107,7 +107,7 @@ describe("renderQuestionAffordance", () => {
 		});
 
 		it("still reports the question itself", () => {
-			expect(renderQuestionAffordance("agent-7", "Which config?", "session-released")).toContain(
+			expect(renderQuestionAffordance("agent-7", "Which config?", "no-session")).toContain(
 				"  Which config?",
 			);
 		});
@@ -122,7 +122,6 @@ describe("renderQuestionAffordance", () => {
 			for (const refusal of [
 				"still-running",
 				"no-session",
-				"session-released",
 				"workspace-disposed",
 			] as const) {
 				expect(renderQuestionAffordance("agent-7", "Which config?", refusal)).not.toContain(
@@ -164,7 +163,7 @@ describe("renderQuestionAffordance", () => {
 	});
 
 	it("renders nothing for an unanswerable agent that asked nothing", () => {
-		expect(renderQuestionAffordance("agent-1", undefined, "session-released")).toBe("");
+		expect(renderQuestionAffordance("agent-1", undefined, "no-session")).toBe("");
 	});
 });
 
@@ -259,7 +258,7 @@ describe("renderOutcomeAddenda", () => {
 
 	it("passes the refusal through, so the tail does not name a refused resume", () => {
 		const rendered = renderOutcomeAddenda(
-			makeAddenda({ pendingQuestion: "Which config?", resumeRefusal: "session-released" }),
+			makeAddenda({ pendingQuestion: "Which config?", resumeRefusal: "no-session" }),
 		);
 
 		expect(rendered).toContain("Which config?");

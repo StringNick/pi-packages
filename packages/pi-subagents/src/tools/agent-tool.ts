@@ -374,14 +374,12 @@ ${guidelines}
 function resumeRefusalMessage(refusal: ResumeRefusalReason, id: string): string {
 	switch (refusal) {
 		case "unknown-agent":
-			return `Agent not found: "${id}". Records are cleared at session start/switch, so it may be from a previous session.`;
+			return `Agent not found: "${id}". Records are durable for the parent session's life, so it may be from another session or its parent was deleted.`;
 		case "still-running":
 			return (
 				`Agent "${id}" is still running; wait for it to finish before resuming. ` +
 				"Use steer_subagent to send it a message while it runs."
 			);
-		case "session-released":
-			return `Agent "${id}" had its session released after its retention window; resume is unavailable, but its result is still retrievable via get_subagent_result.`;
 		case "no-session":
 			return `Agent "${id}" has no active session to resume.`;
 		case "workspace-disposed":

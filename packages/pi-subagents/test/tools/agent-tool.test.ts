@@ -181,8 +181,8 @@ describe("AgentTool — resume path", () => {
 				resume: "nonexistent",
 			});
 			expect(result.content[0].text).toBe(
-				'Agent not found: "nonexistent". Records are cleared at session start/switch, so it ' +
-					"may be from a previous session.",
+				'Agent not found: "nonexistent". Records are durable for the parent session\'s life, so it ' +
+					"may be from another session or its parent was deleted.",
 			);
 		});
 
@@ -196,21 +196,6 @@ describe("AgentTool — resume path", () => {
 				resume: "agent-1",
 			});
 			expect(result.content[0].text).toBe('Agent "agent-1" has no active session to resume.');
-		});
-
-		it("points a released-agent resume at get_subagent_result instead of resuming", async () => {
-			const deps = createToolDeps();
-			mockResumeRefusal(deps, "session-released");
-			const result = await execute(deps, {
-				prompt: "continue",
-				description: "resume",
-				subagent_type: "general-purpose",
-				resume: "agent-1",
-			});
-			expect(result.content[0].text).toBe(
-				'Agent "agent-1" had its session released after its retention window; resume is ' +
-					"unavailable, but its result is still retrievable via get_subagent_result.",
-			);
 		});
 
 		it("tells the parent to wait out a run that has not finished", async () => {
@@ -301,13 +286,14 @@ describe("AgentTool — resume path", () => {
 			expect(result.content[0].text).toContain('resume: "agent-9"');
 		});
 
-		it("reports a resumed child's question without a resume call once its session is gone", async () => {
+		it("reports a resumed child's question with a resume call after its session is evicted", async () => {
 			const deps = createToolDeps();
 			const answered = mockResumeRecord(deps, {
 				id: "agent-9",
 				result: "Thanks.",
 				pendingQuestion: "And the fallback?",
 				sessionReady: true,
+				outputFile: "/tmp/parent/tasks/child.jsonl",
 			});
 			await answered.releaseSession();
 
@@ -318,11 +304,9 @@ describe("AgentTool — resume path", () => {
 				resume: "agent-1",
 			});
 
+			// Eviction is invisible: the transcript stays on disk and resume rehydrates it.
 			expect(result.content[0].text).toContain("And the fallback?");
-			expect(result.content[0].text).toContain(
-				"its session was released after its retention window",
-			);
-			expect(result.content[0].text).not.toContain("resume:");
+			expect(result.content[0].text).toContain('resume: "agent-9"');
 		});
 
 		it("reports the updates a resumed child sent while the parent was blocked", async () => {

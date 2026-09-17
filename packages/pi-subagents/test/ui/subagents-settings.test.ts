@@ -19,16 +19,6 @@ function makeSettings() {
       message: "Grace turns set to 3",
       level: "info",
     })),
-    consumedSessionRetentionMinutes: 10,
-    unconsumedSessionRetentionMinutes: 720,
-    applyConsumedSessionRetentionMinutes: vi.fn((): { message: string; level: "info" | "warning" } => ({
-      message: "Consumed-session retention set to 30 min",
-      level: "info",
-    })),
-    applyUnconsumedSessionRetentionMinutes: vi.fn((): { message: string; level: "info" | "warning" } => ({
-      message: "Unconsumed-session retention set to 1440 min",
-      level: "info",
-    })),
     abortAllOnInterrupt: true,
     toggleAbortAllOnInterrupt: vi.fn((): { message: string; level: "info" | "warning" } => ({
       message: "Abort all subagents on ESC: off",
@@ -57,7 +47,7 @@ describe("SubagentsSettingsHandler", () => {
     expect(handler).toBeInstanceOf(SubagentsSettingsHandler);
   });
 
-  it("shows the seven settings options with current values", async () => {
+  it("shows the five settings options with current values", async () => {
     const { handler } = makeHandler();
     const ui = makeMenuUI([undefined]); // cancel immediately
     await handler.handle({ ui });
@@ -66,8 +56,6 @@ describe("SubagentsSettingsHandler", () => {
       "Max concurrency (current: 4)",
       "Default max turns (current: unlimited)",
       "Grace turns (current: 5)",
-      "Consumed-session retention (current: 10 min)",
-      "Unconsumed-session retention (current: 720 min)",
       "Abort all subagents on ESC (current: on)",
       "Mid-run updates from background subagents (current: on)",
     ]);
@@ -94,7 +82,7 @@ describe("SubagentsSettingsHandler", () => {
     const ui = makeMenuUI([undefined]);
     await handler.handle({ ui });
     const options = ui.select.mock.calls[0][1] as string[];
-    expect(options[5]).toBe("Abort all subagents on ESC (current: off)");
+    expect(options[3]).toBe("Abort all subagents on ESC (current: off)");
   });
 
   it("applies no change when the settings list is cancelled", async () => {
@@ -192,35 +180,6 @@ describe("SubagentsSettingsHandler — grace turns", () => {
     ui.input = vi.fn().mockResolvedValue("0");
     await handler.handle({ ui });
     expect(settings.applyGraceTurns).not.toHaveBeenCalled();
-    expect(ui.notify).toHaveBeenCalledWith("Must be a positive integer.", "warning");
-  });
-});
-
-describe("SubagentsSettingsHandler — retention windows", () => {
-  it("delegates a valid consumed window to applyConsumedSessionRetentionMinutes", async () => {
-    const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Consumed-session retention (current: 10 min)"]);
-    ui.input = vi.fn().mockResolvedValue("30");
-    await handler.handle({ ui });
-    expect(settings.applyConsumedSessionRetentionMinutes).toHaveBeenCalledWith(30);
-    expect(ui.notify).toHaveBeenCalledWith("Consumed-session retention set to 30 min", "info");
-  });
-
-  it("delegates a valid unconsumed window to applyUnconsumedSessionRetentionMinutes", async () => {
-    const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Unconsumed-session retention (current: 720 min)"]);
-    ui.input = vi.fn().mockResolvedValue("1440");
-    await handler.handle({ ui });
-    expect(settings.applyUnconsumedSessionRetentionMinutes).toHaveBeenCalledWith(1440);
-    expect(ui.notify).toHaveBeenCalledWith("Unconsumed-session retention set to 1440 min", "info");
-  });
-
-  it("rejects a consumed window below 1 with a warning and does not apply", async () => {
-    const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Consumed-session retention (current: 10 min)"]);
-    ui.input = vi.fn().mockResolvedValue("0");
-    await handler.handle({ ui });
-    expect(settings.applyConsumedSessionRetentionMinutes).not.toHaveBeenCalled();
     expect(ui.notify).toHaveBeenCalledWith("Must be a positive integer.", "warning");
   });
 });

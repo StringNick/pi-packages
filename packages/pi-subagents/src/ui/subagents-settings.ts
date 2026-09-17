@@ -11,15 +11,11 @@ export interface SubagentsSettingsManager {
   readonly maxConcurrent: number;
   readonly defaultMaxTurns: number | undefined;
   readonly graceTurns: number;
-  readonly consumedSessionRetentionMinutes: number;
-  readonly unconsumedSessionRetentionMinutes: number;
   readonly abortAllOnInterrupt: boolean;
   readonly midRunUpdates: boolean;
   applyMaxConcurrent(n: number): SettingsToast;
   applyDefaultMaxTurns(n: number): SettingsToast;
   applyGraceTurns(n: number): SettingsToast;
-  applyConsumedSessionRetentionMinutes(n: number): SettingsToast;
-  applyUnconsumedSessionRetentionMinutes(n: number): SettingsToast;
   toggleAbortAllOnInterrupt(): SettingsToast;
   toggleMidRunUpdates(): SettingsToast;
 }
@@ -95,26 +91,6 @@ const SETTINGS: readonly SettingDescriptor[] = [
     minimum: 1,
     validationMessage: "Must be a positive integer.",
     apply: (settings, n) => settings.applyGraceTurns(n),
-  },
-  {
-    kind: "numeric",
-    label: "Consumed-session retention",
-    currentDisplay: (settings) => `${settings.consumedSessionRetentionMinutes} min`,
-    inputTitle: "Minutes to retain a consumed agent's session",
-    inputDefault: (settings) => String(settings.consumedSessionRetentionMinutes),
-    minimum: 1,
-    validationMessage: "Must be a positive integer.",
-    apply: (settings, n) => settings.applyConsumedSessionRetentionMinutes(n),
-  },
-  {
-    kind: "numeric",
-    label: "Unconsumed-session retention",
-    currentDisplay: (settings) => `${settings.unconsumedSessionRetentionMinutes} min`,
-    inputTitle: "Minutes to retain an unconsumed agent's session (safety cap)",
-    inputDefault: (settings) => String(settings.unconsumedSessionRetentionMinutes),
-    minimum: 1,
-    validationMessage: "Must be a positive integer.",
-    apply: (settings, n) => settings.applyUnconsumedSessionRetentionMinutes(n),
   },
   {
     kind: "toggle",

@@ -160,6 +160,92 @@ describe("createSubagentSession — assembly", () => {
   });
 });
 
+describe("createSubagentSession — rehydrate", () => {
+  beforeEach(() => {
+    arrangeFactory();
+  });
+
+  it("reopens the persisted transcript instead of starting a new session", async () => {
+    const sub = await createSubagentSession(
+      {
+        snapshot: STUB_SNAPSHOT,
+        type: "Explore",
+        resumeFrom: { outputFile: "/sessions/child.jsonl", childSessionId: "child-session-id" },
+      },
+      defaultDeps(),
+    );
+
+    expect(io.createSessionManager).not.toHaveBeenCalled();
+    expect(io.openSessionManager).toHaveBeenCalledWith(
+      "/sessions/child.jsonl",
+      expect.any(String),
+      "/mock/session-dir/tasks",
+    );
+    const sm = io.openSessionManager.mock.results[0].value;
+    expect(sm.newSession).not.toHaveBeenCalled();
+    expect(sub).toBeInstanceOf(SubagentSession);
+    expect(sub.outputFile).toBe("/sessions/child.jsonl");
+    expect(sub.sessionId).toBe("child-session-id");
+  });
+
+  it.each(["another-parent", undefined])("rejects a reopened transcript with incompatible parent: %s", async (parentSession) => {
+    io.openSessionManager.mockReturnValue({
+      newSession: vi.fn(),
+      getSessionFile: () => "/sessions/parent/tasks/child.jsonl",
+      getSessionId: () => "child-session-id",
+      getHeader: () => ({ parentSession, cwd: STUB_SNAPSHOT.cwd }),
+    });
+    await expect(createSubagentSession({
+      snapshot: STUB_SNAPSHOT,
+      type: "Explore",
+      parentSession: { parentSessionId: "parent-1", parentSessionFile: "/sessions/parent.jsonl" },
+      resumeFrom: { outputFile: "/sessions/parent/tasks/child.jsonl", childSessionId: "child-session-id" },
+    }, defaultDeps())).rejects.toThrow(/parent identity mismatch/);
+    expect(io.createSession).not.toHaveBeenCalled();
+  });
+
+  it("uses the canonical child cwd for resource discovery and tool/session composition", async () => {
+    io.openSessionManager.mockReturnValue({
+      newSession: vi.fn(),
+      getSessionFile: () => "/sessions/parent/tasks/child.jsonl",
+      getSessionId: () => "child-session-id",
+      getHeader: () => ({ parentSession: "parent-1", cwd: "/original-worktree" }),
+    });
+    await createSubagentSession({
+      snapshot: STUB_SNAPSHOT,
+      type: "Explore",
+      parentSession: { parentSessionId: "parent-1", parentSessionFile: "/sessions/parent.jsonl" },
+      resumeFrom: { outputFile: "/sessions/parent/tasks/child.jsonl", childSessionId: "child-session-id" },
+    }, defaultDeps());
+    expect(io.detectEnv).toHaveBeenCalledWith(exec, "/original-worktree");
+    expect(io.createSettingsManager).toHaveBeenCalledWith("/original-worktree", "/mock/agent-dir");
+    expect(io.createSession.mock.calls[0][0].cwd).toBe("/original-worktree");
+    expect(io.createResourceLoader.mock.calls[0][0].cwd).toBe("/original-worktree");
+    expect(io.openSessionManager).toHaveBeenLastCalledWith(
+      "/sessions/parent/tasks/child.jsonl", "/original-worktree", "/mock/session-dir/tasks",
+    );
+  });
+
+  it("rejects a transcript whose identity does not match", async () => {
+    io.openSessionManager.mockReturnValue({
+      newSession: vi.fn(),
+      getSessionFile: vi.fn().mockReturnValue("/sessions/child.jsonl"),
+      getSessionId: vi.fn().mockReturnValue("some-other-child"),
+    });
+
+    await expect(
+      createSubagentSession(
+        {
+          snapshot: STUB_SNAPSHOT,
+          type: "Explore",
+          resumeFrom: { outputFile: "/sessions/child.jsonl", childSessionId: "child-session-id" },
+        },
+        defaultDeps(),
+      ),
+    ).rejects.toThrow(/identity mismatch/);
+  });
+});
+
 describe("createSubagentSession — lifecycle ordering", () => {
   let session: ReturnType<typeof createFactorySession>;
   let lifecycle: ReturnType<typeof createChildLifecycleMock>;

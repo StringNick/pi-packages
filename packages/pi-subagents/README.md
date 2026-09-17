@@ -186,12 +186,12 @@ The message interrupts after the current tool execution.
 
 | Command               | Description                                                                         |
 | --------------------- | ----------------------------------------------------------------------------------- |
-| `/subagents:settings` | Configure subagent settings (concurrency, turn limits, retention, interrupt policy) |
+| `/subagents:settings` | Configure subagent settings (concurrency, turn limits, interrupt policy) |
 | `/subagents:sessions` | View a subagent's session transcript (read-only)                                    |
 
 ### `/subagents:settings`
 
-Interactive list to tune runtime settings — max concurrency, default max turns, grace turns, the two session-retention windows, and whether ESC aborts every subagent.
+Interactive list to tune runtime settings — max concurrency, default max turns, grace turns, and whether ESC aborts every subagent. Subagent transcripts are durable: they live with the parent session until it is deleted, with no retention setting.
 The numeric settings open an input prompt; the abort-on-ESC entry is a direct flip.
 Changes persist across pi restarts (see [Persistent Settings](./docs/configuration.md#persistent-settings)).
 
@@ -238,8 +238,9 @@ It receives the standard pair of session lifecycle events:
 | `session_start`    | Extensions are bound, before the child's first turn | `"startup"` |
 | `session_shutdown` | The child session is disposed                       | `"quit"`    |
 
-Disposal happens when the retention window for a finished agent expires, when completed records are cleared at session start or switch, when the parent session shuts down, or when child extension binding fails partway.
-It does **not** happen the moment an agent finishes: the session is retained so the agent can be resumed, per the `consumedSessionRetentionMinutes` and `unconsumedSessionRetentionMinutes` settings above.
+The heavy in-memory session is evicted after a short idle window; the record and its transcript stay durable for the parent session's whole life, and resume transparently rehydrates the transcript from disk. Records also survive a backend restart: they are re-materialized from the parent session history on session start.
+Full disposal happens when the parent session shuts down, or when child extension binding fails partway.
+It does **not** happen the moment an agent finishes: the transcript is retained so the agent can be resumed at any time.
 
 The shutdown event is dispatched and awaited **before** the child's `AgentSession` is disposed, so a handler still has a live context and can close what it opened — stdio subprocesses, sockets, timers, file handles.
 Each child's shutdown is bounded: a handler that never resolves is abandoned after a few seconds and disposal proceeds, so one misbehaving extension cannot stall the parent's teardown or Pi's exit.
@@ -375,11 +376,10 @@ A resume that could not start resolves to `{ kind: "refused", reason }` instead,
 
 | `reason`             | Meaning                                                         |
 | -------------------- | --------------------------------------------------------------- |
-| `unknown-agent`      | No record answers to that id (records are cleared per session)  |
-| `still-running`      | The agent has not settled; wait, or `steer` it while it runs    |
-| `no-session`         | The agent never had a session to continue                       |
-| `session-released`   | Its session was released after the retention window             |
-| `workspace-disposed` | Its isolated workspace is gone, so a resume cannot re-enter it  |
+| `unknown-agent`      | No record answers to that id (records live with the parent session) |
+| `still-running`      | The agent has not settled; wait, or `steer` it while it runs       |
+| `no-session`         | The agent has no session and no retained transcript to continue    |
+| `workspace-disposed` | Its isolated workspace is gone, so a resume cannot re-enter it     |
 
 A resumed run that _fails_ is still `{ kind: "resumed" }`; the snapshot carries `status: "error"` and the message.
 Refused means nothing started.

@@ -181,7 +181,7 @@ describe("GetResultTool", () => {
 			expect(result.content[0].text).not.toContain("resume:");
 		});
 
-		it("forwards the record's refusal, so a swept record names no resume", async () => {
+		it("forwards the record's refusal, so a transcript-less record names no resume", async () => {
 			const released = createTestSubagent({
 				pendingQuestion: "Which config?",
 				sessionReady: true,
@@ -192,9 +192,7 @@ describe("GetResultTool", () => {
 			const result = await execute(makeManager(records), { agent_id: "agent-1" });
 
 			expect(result.content[0].text).toContain("Which config?");
-			expect(result.content[0].text).toContain(
-				"its session was released after its retention window",
-			);
+			expect(result.content[0].text).toContain("it has no active session");
 			expect(result.content[0].text).not.toContain("resume:");
 		});
 	});

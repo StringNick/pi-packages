@@ -1,4 +1,6 @@
-import type { SessionContext } from "#src/types";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { restoredAgentsFromEntries, type RestoredAgentInit } from "#src/lifecycle/subagent-manager";
+import type { ParentSessionInfo, SessionContext } from "#src/types";
 
 /**
  * Session lifecycle event handlers: session_start, session_before_switch, session_shutdown.
@@ -9,9 +11,19 @@ import type { SessionContext } from "#src/types";
 
 /** Narrow manager interface — only the methods lifecycle handlers call. */
 export interface LifecycleManager {
-  clearCompleted(): Promise<void>;
+  evictTerminalSessions(): Promise<void>;
+  restoreAgents(parentSession: ParentSessionInfo, inits: readonly RestoredAgentInit[]): number;
   abortAll(): void;
   dispose(): Promise<void>;
+}
+
+/** Narrow session-start context — only what restore reads. */
+export interface LifecycleSessionStartCtx {
+  sessionManager?: {
+    getSessionId(): string;
+    getSessionFile(): string | undefined;
+    getEntries(): SessionEntry[];
+  };
 }
 
 /** Narrow runtime interface — only the methods lifecycle handlers call. */
@@ -37,13 +49,29 @@ export class SessionLifecycleHandler {
     private readonly unpublishService: () => void,
   ) {}
 
-  handleSessionStart(_event: unknown, ctx: unknown): Promise<void> {
+  async handleSessionStart(_event: unknown, ctx: unknown): Promise<void> {
     this.runtime.setSessionContext(ctx as SessionContext);
-    return this.manager.clearCompleted();
+    // The parent JSONL is the durable store; the manager map is a cache.
+    // Re-materialize records lost to a backend restart as evicted sessions —
+    // the first resume rehydrates the child transcript from disk.
+    const sessionManager = (ctx as LifecycleSessionStartCtx | undefined)?.sessionManager;
+    if (!sessionManager) return;
+    let entries: SessionEntry[] = [];
+    try {
+      entries = sessionManager.getEntries();
+    } catch {
+      return;
+    }
+    const parentSession: ParentSessionInfo = {
+      parentSessionId: sessionManager.getSessionId(),
+      parentSessionFile: sessionManager.getSessionFile(),
+    };
+    this.manager.restoreAgents(parentSession, restoredAgentsFromEntries(entries));
   }
 
   handleSessionBeforeSwitch(): Promise<void> {
-    return this.manager.clearCompleted();
+    // Drop memory, never durability: records re-materialize on session_start.
+    return this.manager.evictTerminalSessions();
   }
 
   // Cleanup order matters:

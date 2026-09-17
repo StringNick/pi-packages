@@ -366,7 +366,7 @@ export class NotificationManager implements NotificationSystem {
 
   /**
    * Pi accepted the result into the parent's conversation. Enqueueing is not
-   * delivery; an interrupted queue must not start the consumed-retention clock.
+   * delivery; an interrupted queue must not count as collected.
    * This is a transport acknowledgement, not proof the model acted on it.
    */
   onParentMessageEnd(message: { role: string; customType?: string; details?: unknown }): void {

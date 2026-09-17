@@ -231,7 +231,7 @@ Two names are always **added**, whatever an agent lists: `ask_parent` and `notif
 These are the child's channel back to the agent that delegated to it — protocol the core installs in every child, like the `<active_agent>` tag and the parent-context prefix.
 Neither reaches the filesystem, the shell, or the network, so a read-only agent stays read-only.
 `ask_parent` records a question and tells the child to end its turn, so the delegating agent can answer by resuming it; `notify_parent` sends a one-way update and returns at once.
-A question outlives the window in which it can be answered — the session is released after its retention window, and a workspace is torn down at run end unless the child completed — so once a resume would be refused, the result reports the question and the reason rather than the `resume` call.
+A finished agent stays resumable for its parent session's whole life — the heavy in-memory session may be evicted, but the transcript stays on disk and resume rehydrates it. A workspace is torn down at run end unless the child completed — so once a resume would be refused, the result reports the question and the reason rather than the `resume` call.
 Both go to every agent, `notify_parent` only while [`midRunUpdates`](#persistent-settings) is on.
 Where an update lands depends on whether an announcement can still reach you in time to act on it.
 It arrives as its own message when you are idle and the agent is still running — the one case where steering it is still possible.
@@ -260,9 +260,8 @@ Two other settings interact with this list:
 
 ## Persistent Settings
 
-Runtime tuning values set via `/subagents:settings` (max concurrency, default max turns, grace turns, the two session-retention windows, the abort-on-interrupt policy, and the mid-run update channel) persist across pi restarts.
-A completed subagent's record is kept for the whole parent session (so `get_subagent_result` never misses); only its heavy in-memory session is released — after `consumedSessionRetentionMinutes` once the result has been collected, or after the `unconsumedSessionRetentionMinutes` safety cap if it never was.
-An agent that asked a question and has not been answered holds the safety cap rather than the consumed window, because reading a question is not finishing with the agent — the answer is delivered by resuming the very session the short window would release.
+Runtime tuning values set via `/subagents:settings` (max concurrency, default max turns, grace turns, the abort-on-interrupt policy, and the mid-run update channel) persist across pi restarts.
+A completed subagent's record is kept for the whole parent session (so `get_subagent_result` never misses); only its heavy in-memory session is evicted after a short idle window, and resume transparently rehydrates it from the retained transcript. Records also survive a backend restart: they are re-materialized from the parent session history on session start.
 
 Set `midRunUpdates` to `false` to withhold `notify_parent` from every agent, leaving them no way to tell you anything before they finish.
 `ask_parent` is unaffected: a blocked agent can still end its turn with a question.
@@ -274,7 +273,7 @@ Two files, merged on load:
   Written by `/subagents:settings`.
 
 **Precedence:** project overrides global on any field present in both.
-Missing fields fall back to the hardcoded defaults (max concurrency `4`, default max turns unlimited, grace turns `5`, consumed-session retention `10` minutes, unconsumed-session retention `720` minutes, abort-all-on-interrupt `true`, mid-run updates `true`).
+Missing fields fall back to the hardcoded defaults (max concurrency `4`, default max turns unlimited, grace turns `5`, abort-all-on-interrupt `true`, mid-run updates `true`).
 
 **Example — global defaults for a beefy machine:**
 
@@ -284,7 +283,6 @@ cat > ~/.pi/agent/subagents.json <<'EOF'
 {
   "maxConcurrent": 16,
   "graceTurns": 10,
-  "unconsumedSessionRetentionMinutes": 1440,
   "abortAllOnInterrupt": false,
   "midRunUpdates": true
 }

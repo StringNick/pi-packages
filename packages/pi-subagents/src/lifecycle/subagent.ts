@@ -77,10 +77,10 @@ export type { SubagentStatus } from "#src/lifecycle/subagent-state";
 /**
  * Why a resume of an agent would be refused.
  *
- * One vocabulary for a fact three record-level conditions used to answer
- * separately: the resume door decided it from `isSessionReady()`,
- * `sessionReleased`, and `workspaceDisposed`, while the result carriers never
- * consulted any of them and advertised the resume regardless.
+ * Eviction is not a refusal: a terminal record whose heavy session was evicted
+ * (idle sweep) or never materialized (backend restart) rehydrates its child
+ * transcript from disk on resume. Only a record that never had a session — or
+ * whose transcript is gone — reports `no-session`.
  *
  * `still-running` is the one transient member: it is a refusal of *now* rather
  * than of ever, and the carriers word it accordingly.
@@ -88,7 +88,6 @@ export type { SubagentStatus } from "#src/lifecycle/subagent-state";
 export type ResumeRefusal =
 	| "still-running"
 	| "no-session"
-	| "session-released"
 	| "workspace-disposed";
 
 /**
@@ -218,18 +217,21 @@ export class Subagent {
 	get promise(): Promise<void> | undefined { return this._promise; }
 
 	private readonly execution: SubagentExecution;
+	/** Workspace cwd the run resolved (undefined → parent cwd); reused at rehydrate. */
+	private runCwd?: string;
 	private readonly listeners = new RunListeners();
 	private readonly workspaceBracket: WorkspaceBracket;
 
 	subagentSession?: SubagentSession;
 
-	// Retained after releaseSession() disposes the heavy session, so outputFile
-	// (transcript pointer) survives and the resume path can tell "released" from
-	// "never had a session."
+	// Retained after releaseSession() evicts the heavy session, so outputFile
+	// (transcript pointer) survives and the resume path can rehydrate the child
+	// transcript from disk rather than refuse.
 	private _releasedOutputFile?: string;
 	private _releasedChildSessionId?: string;
 	private _sessionReleased = false;
-	/** True once releaseSession() has freed a live session (distinct from never having had one). */
+	private sessionRelease?: Promise<void>;
+	/** True once releaseSession() has evicted a live session (rehydratable from disk). */
 	get sessionReleased(): boolean { return this._sessionReleased; }
 
 	/**
@@ -272,11 +274,9 @@ export class Subagent {
 	 * Why a resume of this agent would be refused, or undefined when one would be
 	 * accepted.
 	 *
-	 * The conditions are checked in the order the resume door checks them, so a
-	 * record whose session was released *and* whose workspace is gone reports the
-	 * session — the door's message for it names the retention window, which is
-	 * the fact that explains both. A live run outranks all of them: nothing about
-	 * a settled record is decided yet.
+	 * An evicted session is not a refusal: `resume()` rehydrates it from the
+	 * retained transcript pointers. A live run outranks all of them: nothing
+	 * about a settled record is decided yet.
 	 *
 	 * A getter rather than a predicate method because the result carriers read it
 	 * as a field: `OutcomeAddenda` and `AgentReport` both declare it, and a live
@@ -288,10 +288,76 @@ export class Subagent {
 		// session" does. A queued agent is not running and keeps the no-session
 		// answer, which is the truth about it.
 		if (this.isRunning() || (this.status !== "queued" && this.executionPending)) return "still-running";
-		if (!this.isSessionReady()) return this._sessionReleased ? "session-released" : "no-session";
+		if (!this.isSessionReady() && !this.canRehydrate()) return "no-session";
 		if (this.workspaceDisposed) return "workspace-disposed";
 		return undefined;
 	}
+
+	/**
+	 * Whether a missing live session can be rebuilt from disk: evicted (idle
+	 * sweep) or restored (backend restart) records keep the child transcript
+	 * pointers, and the transcript outlives every in-memory session.
+	 */
+	canRehydrate(): boolean {
+		return this.subagentSession == null
+			&& this._releasedOutputFile != null
+			&& this._releasedChildSessionId != null;
+	}
+
+	/**
+	 * Adopt evicted transcript pointers without a live session — the state
+	 * `releaseSession()` produces, and the state restored records arrive in.
+	 * The next resume rehydrates from disk.
+	 */
+	markSessionEvicted(outputFile: string, childSessionId: string): void {
+		this._releasedOutputFile = outputFile;
+		this._releasedChildSessionId = childSessionId;
+		this._sessionReleased = true;
+	}
+
+	/**
+	 * Ensure a live child session, rehydrating an evicted one from its retained
+	 * transcript. No-op when the session is already live. Throws when the
+	 * transcript cannot be reopened; the caller reports it as a resume failure.
+	 */
+	async ensureSession(signal?: AbortSignal): Promise<void> {
+		// The old writer and its host registrations must finish shutting down
+		// before another session can claim the same child identity.
+		if (this.sessionRelease) await this.sessionRelease;
+		signal?.throwIfAborted();
+		if (this.subagentSession) return;
+		const outputFile = this._releasedOutputFile;
+		const childSessionId = this._releasedChildSessionId;
+		if (!outputFile || !childSessionId) {
+			throw new Error("Subagent not configured for resume — missing session");
+		}
+		const runConfig = this.execution.getRunConfig?.();
+		this.subagentSession = await this.execution.createSubagentSession({
+			runId: this.id,
+			// The resume's own signal: the original run's controller is spent
+			// (a resume after abort must still rehydrate).
+			signal,
+			snapshot: this.execution.snapshot,
+			type: this.type,
+			cwd: this.runCwd,
+			parentSession: this.execution.parentSession,
+			model: this.execution.model,
+			thinkingLevel: this.execution.thinkingLevel,
+			askParent: (question) => { this.state.setPendingQuestion(question); },
+			notifyParent: this.canSendUpdates(runConfig)
+				? (message) => { this.announceUpdate(message); }
+				: undefined,
+			resumeFrom: { outputFile, childSessionId },
+		});
+		this.launchAttribution = {
+			model: this.subagentSession.getModel(),
+			thinkingLevel: this.subagentSession.getThinkingLevel(),
+		};
+		this._sessionReleased = false;
+		this.execution.observer?.onSessionCreated?.(this);
+	}
+
+
 
 	/**
 	 * Steer a running agent, owning the non-running rejection rule.
@@ -438,6 +504,7 @@ export class Subagent {
 			this.failRun(err);
 			return;
 		}
+		this.runCwd = cwd;
 
 		this.launchAttribution = {
 			model: this.subagentSession.getModel(),
@@ -542,7 +609,7 @@ export class Subagent {
 	 * Resume an existing session with a new prompt, managing the observer
 	 * subscription lifecycle internally (same wiring as run()).
 	 *
-	 * Requires an existing SubagentSession (set when the original run created it).
+	 * An evicted session is rehydrated from its retained transcript first.
 	 * The returned promise always resolves (errors are captured internally) and is
 	 * published as the `promise` getter, so waiters track the resume rather than
 	 * the settled handle of the original run.
@@ -550,24 +617,35 @@ export class Subagent {
 	 * stopping a resumed turn does not depend on the initial run's spent controller.
 	 */
 	resume(prompt: string, signal?: AbortSignal): Promise<void> {
-		const subagentSession = this.subagentSession;
-		if (!subagentSession) {
-			// Rejection, not a throw: this method is not async, and a synchronous
-			// throw would escape a caller's `.rejects` assertion.
-			return Promise.reject(new Error("Subagent not configured for resume — missing session"));
-		}
-
 		const controller = new AbortController();
 		this.resumeAbort = controller;
-		this._promise = this.trackExecution(() => this.runResume(subagentSession, prompt,
+		this._promise = this.trackExecution(() => this.runResume(prompt,
 			signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
 		)).finally(() => { if (this.resumeAbort === controller) this.resumeAbort = undefined; });
 		return this._promise;
 	}
 
 	/** The resume body. Always resolves — errors terminate through failResume(). */
-	private async runResume(subagentSession: SubagentSession, prompt: string, signal?: AbortSignal): Promise<void> {
+	private async runResume(prompt: string, signal?: AbortSignal): Promise<void> {
 		this.resetForResume(Date.now());
+		// Live sessions keep the historical synchronous timing (reset, observer
+		// wiring, and turn-loop entry all happen in this turn); only an evicted
+		// session yields to rehydrate from disk first.
+		if (!this.subagentSession) {
+			try {
+				await this.ensureSession(signal);
+			} catch (err) {
+				if (signal?.aborted) this.stopResume();
+				else this.failResume(err);
+				return;
+			}
+			if (!this.subagentSession) {
+				if (signal?.aborted) this.stopResume();
+				else this.failResume(new Error("Subagent not configured for resume — missing session"));
+				return;
+			}
+		}
+		const subagentSession = this.subagentSession;
 		try {
 			this.execution.observer?.onResumeStarted?.(this);
 			this.listeners.attachObserver(subscribeSubagentObserver(subagentSession, this.state, {
@@ -764,12 +842,13 @@ export class Subagent {
 	}
 
 	/**
-	 * Release the heavy session while keeping the record: capture the transcript
-	 * pointer, dispose the session (firing `disposed`), clear it, and mark released.
-	 * A no-op once the session is gone — the retention sweep may call it repeatedly.
+	 * Evict the heavy session while keeping the record: capture the transcript
+	 * pointer, dispose the session (firing `disposed`), clear it, and mark evicted.
+	 * A no-op once the session is gone — the eviction sweep may call it repeatedly.
+	 * Resume transparently rehydrates from the retained pointers.
 	 *
 	 * The record's own state is updated before the teardown is awaited, so a sweep
-	 * tick arriving mid-teardown sees a released record rather than starting a
+	 * tick arriving mid-teardown sees an evicted record rather than starting a
 	 * second one.
 	 */
 	async releaseSession(): Promise<void> {
@@ -780,7 +859,8 @@ export class Subagent {
 		this._releasedChildSessionId = session.sessionId;
 		this.subagentSession = undefined;
 		this._sessionReleased = true;
-		await disposeQuietly(session, "child session release");
+		this.sessionRelease = disposeQuietly(session, "child session release");
+		await this.sessionRelease;
 	}
 
 	/** Fail a run: mark error, release listeners, best-effort workspace dispose, notify observer. */

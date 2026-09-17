@@ -585,11 +585,11 @@ describe("SubagentsServiceAdapter — resume", () => {
 
   it("reports a refusal verbatim, so a consumer can word its own message", async () => {
     const mgr = createManagerStub();
-    mgr.resume.mockResolvedValue({ kind: "refused", reason: "session-released" });
+    mgr.resume.mockResolvedValue({ kind: "refused", reason: "no-session" });
 
     expect(await createSvc(mgr).resume("a-1", "continue")).toEqual({
       kind: "refused",
-      reason: "session-released",
+      reason: "no-session",
     });
   });
 

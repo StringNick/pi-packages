@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vite
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import { ConcurrencyLimiter } from "#src/lifecycle/concurrency-limiter";
 import type { CreateSubagentSessionParams } from "#src/lifecycle/create-subagent-session";
-import type { AgentSpawnConfig } from "#src/lifecycle/subagent-manager";
-import { resolveRetentionWindow, SubagentManager, type SubagentManagerObserver } from "#src/lifecycle/subagent-manager";
+import type { AgentSpawnConfig, RestoredAgentInit } from "#src/lifecycle/subagent-manager";
+import { restoredAgentsFromEntries, SESSION_EVICT_IDLE_MS, SubagentManager, type SubagentManagerObserver } from "#src/lifecycle/subagent-manager";
 import type { SubagentSession } from "#src/lifecycle/subagent-session";
 import type { WorkspaceProvider } from "#src/lifecycle/workspace";
 import { NotificationManager } from "#src/observation/notification";
@@ -53,7 +53,7 @@ function createManager(overrides?: {
   observer?: Partial<SubagentManagerObserver>;
   getMaxConcurrent?: () => number;
   getRunConfig?: () => RunConfig;
-  getRetentionPolicy?: () => { consumedSessionRetentionMinutes: number; unconsumedSessionRetentionMinutes: number };
+  getParentSnapshot?: () => typeof STUB_SNAPSHOT;
   baseCwd?: string;
   registry?: AgentTypeRegistry;
 }) {
@@ -77,7 +77,7 @@ function createManager(overrides?: {
     limiter,
     baseCwd: overrides?.baseCwd ?? "/repo",
     getRunConfig: overrides?.getRunConfig,
-    getRetentionPolicy: overrides?.getRetentionPolicy,
+    getParentSnapshot: overrides?.getParentSnapshot,
     registry: overrides?.registry ?? defaultRegistry(),
   });
   return { manager: mgr, createSubagentSession, limiter };
@@ -837,25 +837,27 @@ describe("SubagentManager", () => {
       });
     });
 
-    describe("clearCompleted", () => {
+    describe("evictTerminalSessions", () => {
       let manager: SubagentManager;
 
       afterEach(async () => {
         await manager.dispose();
       });
 
-      it("clearCompleted removes completed records", async () => {
+      it("evictTerminalSessions keeps completed records but evicts their sessions", async () => {
         ({ manager } = createManager());
 
         const id = spawnBg(manager);
         await manager.getRecord(id)!.promise;
 
         expect(manager.listAgents()).toHaveLength(1);
-        await manager.clearCompleted();
-        expect(manager.listAgents()).toHaveLength(0);
+        await manager.evictTerminalSessions();
+        // Durable: the record survives, only the heavy session is gone.
+        expect(manager.listAgents()).toHaveLength(1);
+        expect(manager.getRecord(id)!.isSessionReady()).toBe(false);
       });
 
-      it("clearCompleted does not remove running or queued agents", async () => {
+      it("evictTerminalSessions does not touch running or queued agents", async () => {
         // Use maxConcurrent=1 to keep second agent queued; factory never resolves
         ({ manager } = createManager({ getMaxConcurrent: () => 1, createSubagentSession: createBlockingFactory() }));
 
@@ -866,7 +868,7 @@ describe("SubagentManager", () => {
         expect(manager.getRecord(id1)!.status).toBe("running");
         expect(manager.getRecord(id2)!.status).toBe("queued");
 
-        await manager.clearCompleted();
+        await manager.evictTerminalSessions();
 
         // Both should still be present
         expect(manager.getRecord(id1)).toBeDefined();
@@ -877,7 +879,7 @@ describe("SubagentManager", () => {
         manager.abort(id2);
       });
 
-      it("clearCompleted calls dispose on sessions of removed records", async () => {
+      it("evictTerminalSessions calls dispose on evicted sessions", async () => {
         const disposeSpy = vi.fn();
         const sess = createMockSession({ dispose: disposeSpy });
         const { factory } = createSessionFactory(sess);
@@ -886,12 +888,12 @@ describe("SubagentManager", () => {
         const id = spawnBg(manager);
         await manager.getRecord(id)!.promise;
 
-        await manager.clearCompleted();
+        await manager.evictTerminalSessions();
 
         expect(disposeSpy).toHaveBeenCalledOnce();
       });
 
-      it("clearCompleted removes error and stopped records", async () => {
+      it("evictTerminalSessions evicts error and stopped records but keeps them", async () => {
         const { factory, stub } = createSessionFactory();
         stub.runTurnLoop.mockRejectedValue(new Error("boom"));
         ({ manager } = createManager({ createSubagentSession: factory }));
@@ -900,8 +902,9 @@ describe("SubagentManager", () => {
         await manager.getRecord(id)!.promise;
         expect(manager.getRecord(id)!.status).toBe("error");
 
-        await manager.clearCompleted();
-        expect(manager.getRecord(id)).toBeUndefined();
+        await manager.evictTerminalSessions();
+        expect(manager.getRecord(id)).toBeDefined();
+        expect(manager.getRecord(id)!.isSessionReady()).toBe(false);
       });
     });
 
@@ -919,11 +922,11 @@ describe("SubagentManager", () => {
         return { id, teardown, stub };
       }
 
-      it("clearCompleted resolves only after the removed record's teardown settles", async () => {
+      it("evictTerminalSessions resolves only after the evicted record's teardown settles", async () => {
         const { teardown } = await seedGatedTeardown();
 
         let settled = false;
-        const pending = manager.clearCompleted().then(() => {
+        const pending = manager.evictTerminalSessions().then(() => {
           settled = true;
         });
         await Promise.resolve();
@@ -934,11 +937,11 @@ describe("SubagentManager", () => {
         expect(settled).toBe(true);
       });
 
-      it("clearCompleted drops the record before awaiting its teardown", async () => {
+      it("evictTerminalSessions keeps the record while its teardown settles", async () => {
         const { id, teardown } = await seedGatedTeardown();
 
-        const pending = manager.clearCompleted();
-        expect(manager.getRecord(id)).toBeUndefined();
+        const pending = manager.evictTerminalSessions();
+        expect(manager.getRecord(id)).toBeDefined();
 
         teardown.resolve();
         await pending;
@@ -982,7 +985,7 @@ describe("SubagentManager", () => {
       });
     });
 
-    describe("consumption-aware session release sweep", () => {
+    describe("idle session eviction sweep", () => {
       let manager: SubagentManager;
 
       afterEach(async () => {
@@ -993,51 +996,41 @@ describe("SubagentManager", () => {
       /** Spawn a background agent over a session factory and await its completion. */
       async function spawnCompleted(
         outputFile: string | undefined = "/tasks/agent.jsonl",
-        getRetentionPolicy?: () => { consumedSessionRetentionMinutes: number; unconsumedSessionRetentionMinutes: number },
       ): Promise<string> {
         const { factory } = createSessionFactory(createMockSession(), outputFile);
-        ({ manager } = createManager({ createSubagentSession: factory, getRetentionPolicy }));
+        ({ manager } = createManager({ createSubagentSession: factory }));
         const id = spawnBg(manager, "test", "investigate the bug");
         await manager.getRecord(id)!.promise;
         return id;
       }
 
-      it("releases a consumed agent's session 10 min after consumption but keeps the record", async () => {
+      it("holds a fresh terminal session and evicts it after the idle window", async () => {
+        const id = await spawnCompleted("/tasks/agent.jsonl");
+        const completedAt = manager.getRecord(id)!.completedAt!;
+
+        manager.evictIdleSessions(completedAt + SESSION_EVICT_IDLE_MS - 1);
+        expect(manager.getRecord(id)!.isSessionReady()).toBe(true);
+
+        manager.evictIdleSessions(completedAt + SESSION_EVICT_IDLE_MS);
+        const evicted = manager.getRecord(id)!;
+        expect(evicted).toBeDefined();
+        expect(evicted.isSessionReady()).toBe(false);
+        expect(evicted.outputFile).toBe("/tasks/agent.jsonl");
+      });
+
+      it("evicts regardless of consumption — eviction is memory hygiene, not lifetime", async () => {
         const id = await spawnCompleted("/tasks/agent.jsonl");
         const record = manager.getRecord(id)!;
         const completedAt = record.completedAt!;
-        record.markConsumed(completedAt + 5 * 60_000); // consumed 5 min after completion
-        const nowSpy = vi.spyOn(Date, "now");
+        record.markConsumed(completedAt);
 
-        // 10 min after completion is only 5 min after consumption → still retained.
-        nowSpy.mockReturnValue(completedAt + 10 * 60_000);
-        (manager as any).sweep();
-        expect(manager.getRecord(id)!.isSessionReady()).toBe(true);
-
-        // 10 min after consumption → session released, record survives.
-        nowSpy.mockReturnValue(completedAt + 15 * 60_000);
-        (manager as any).sweep();
-        const swept = manager.getRecord(id)!;
-        expect(swept).toBeDefined();
-        expect(swept.isSessionReady()).toBe(false);
-        expect(swept.outputFile).toBe("/tasks/agent.jsonl");
-      });
-
-      it("holds an unconsumed agent's session past 10 min and releases it at the cap", async () => {
-        const id = await spawnCompleted("/tasks/agent.jsonl");
-        const completedAt = manager.getRecord(id)!.completedAt!;
-        const nowSpy = vi.spyOn(Date, "now");
-
-        nowSpy.mockReturnValue(completedAt + 11 * 60_000); // past the consumed window
-        (manager as any).sweep();
-        expect(manager.getRecord(id)!.isSessionReady()).toBe(true); // unconsumed → held
-
-        nowSpy.mockReturnValue(completedAt + 721 * 60_000); // past the 12h cap
-        (manager as any).sweep();
+        manager.evictIdleSessions(completedAt + SESSION_EVICT_IDLE_MS);
         expect(manager.getRecord(id)!.isSessionReady()).toBe(false);
+        // The record (and its result) survives eviction.
+        expect(manager.getRecord(id)!.result).toBe(record.result);
       });
 
-      it("never releases a running or queued agent's session", async () => {
+      it("never evicts a running or queued agent's session", async () => {
         ({ manager } = createManager({ getMaxConcurrent: () => 1, createSubagentSession: createBlockingFactory() }));
         const runningId = spawnBg(manager, "t1");
         const queuedId = spawnBg(manager, "t2");
@@ -1046,8 +1039,7 @@ describe("SubagentManager", () => {
         const runRelease = vi.spyOn(manager.getRecord(runningId)!, "releaseSession");
         const queueRelease = vi.spyOn(manager.getRecord(queuedId)!, "releaseSession");
 
-        vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10_000 * 60_000);
-        (manager as any).sweep();
+        manager.evictIdleSessions(Date.now() + 10_000 * 60_000);
 
         expect(runRelease).not.toHaveBeenCalled();
         expect(queueRelease).not.toHaveBeenCalled();
@@ -1055,24 +1047,10 @@ describe("SubagentManager", () => {
         manager.abort(queuedId);
       });
 
-      it("honors a custom retention policy from getRetentionPolicy", async () => {
-        const id = await spawnCompleted("/t.jsonl", () => ({
-          consumedSessionRetentionMinutes: 1,
-          unconsumedSessionRetentionMinutes: 2,
-        }));
-        const record = manager.getRecord(id)!;
-        const completedAt = record.completedAt!;
-        record.markConsumed(completedAt);
-        vi.spyOn(Date, "now").mockReturnValue(completedAt + 2 * 60_000); // 2 min > 1 min window
-        (manager as any).sweep();
-        expect(manager.getRecord(id)!.isSessionReady()).toBe(false);
-      });
-
-      it("leaves records in place after release (getRecord still resolves them)", async () => {
+      it("leaves records in place after eviction (getRecord still resolves them)", async () => {
         const id = await spawnCompleted("/tasks/agent.jsonl");
         const completedAt = manager.getRecord(id)!.completedAt!;
-        vi.spyOn(Date, "now").mockReturnValue(completedAt + 721 * 60_000);
-        (manager as any).sweep();
+        manager.evictIdleSessions(completedAt + SESSION_EVICT_IDLE_MS);
         expect(manager.listAgents()).toHaveLength(1);
         expect(manager.getRecord(id)).toBeDefined();
       });
@@ -1447,17 +1425,116 @@ describe("SubagentManager", () => {
         });
       });
 
-      it("reports a session released by the retention sweep", async () => {
-        const { factory } = createSessionFactory();
+      it("rehydrates an evicted session and resumes it", async () => {
+        const { factory, stub } = createSessionFactory(
+          createMockSession(),
+          "/tasks/agent.jsonl",
+        );
+        stub.resumeTurnLoop.mockResolvedValue("second");
         ({ manager } = createManager({ createSubagentSession: factory }));
         const id = spawnBg(manager);
         await manager.getRecord(id)!.promise;
         await manager.getRecord(id)!.releaseSession();
+        expect(manager.getRecord(id)!.isSessionReady()).toBe(false);
 
-        expect(await manager.resume(id, "continue")).toEqual({
-          kind: "refused",
-          reason: "session-released",
+        const outcome = await manager.resume(id, "continue");
+
+        expect(outcome.kind).toBe("resumed");
+        expect(manager.getRecord(id)!.isSessionReady()).toBe(true);
+        expect(stub.resumeTurnLoop).toHaveBeenCalledWith("continue", expect.any(AbortSignal));
+      });
+
+      it("observes an evicted resume once and releases its observer on settlement", async () => {
+        const { factory } = createSessionFactory(createMockSession(), "/tasks/agent.jsonl");
+        const onSubagentCompacted = vi.fn();
+        ({ manager } = createManager({ createSubagentSession: factory, observer: { onSubagentCompacted } }));
+        const id = spawnBg(manager);
+        const record = manager.getRecord(id)!;
+        await record.promise;
+        await record.releaseSession();
+
+        const session = createMockSession();
+        const resumed = createSubagentSessionStub(session, "/tasks/agent.jsonl");
+        factory.mockResolvedValue(toSubagentSession(resumed));
+        const emitProgress = () => {
+          session.emit({ type: "tool_execution_end", toolName: "read" });
+          session.emit({ type: "turn_end" });
+          emitResumeUsageAndCompaction(session);
+        };
+        resumed.resumeTurnLoop.mockImplementation(async () => {
+          emitProgress();
+          return "done";
         });
+
+        await manager.resume(id, "continue");
+
+        expect(session.subscribe).toHaveBeenCalledOnce();
+        // Turn count starts at one; the single turn_end advances it once.
+        expect([record.toolUses, record.turnCount, record.compactionCount]).toEqual([1, 2, 1]);
+        expect(record.lifetimeUsage).toEqual({ input: 70, output: 30, cacheWrite: 5 });
+        expect(onSubagentCompacted).toHaveBeenCalledOnce();
+
+        emitProgress();
+        expect([record.toolUses, record.turnCount, record.compactionCount]).toEqual([1, 2, 1]);
+        expect(record.lifetimeUsage).toEqual({ input: 70, output: 30, cacheWrite: 5 });
+        expect(onSubagentCompacted).toHaveBeenCalledOnce();
+      });
+
+      it("waits for eviction teardown before reopening the same child", async () => {
+        const { factory, stub } = createSessionFactory(createMockSession(), "/tasks/agent.jsonl");
+        ({ manager } = createManager({ createSubagentSession: factory }));
+        const id = spawnBg(manager);
+        const record = manager.getRecord(id)!;
+        await record.promise;
+        const teardown = Promise.withResolvers<void>();
+        stub.dispose.mockReturnValueOnce(teardown.promise);
+        const eviction = record.releaseSession();
+        const resumed = manager.resume(id, "continue");
+        try {
+          await Promise.resolve();
+          expect(factory).toHaveBeenCalledTimes(1);
+          expect(stub.resumeTurnLoop).not.toHaveBeenCalled();
+        } finally {
+          teardown.resolve();
+          await eviction;
+          await resumed;
+        }
+        expect(factory).toHaveBeenCalledTimes(2);
+      });
+
+      it("rehydrates after the run controller was spent, without poisoning resume", async () => {
+        const { factory, stub } = createSessionFactory(createMockSession(), "/tasks/agent.jsonl");
+        ({ manager } = createManager({ createSubagentSession: factory }));
+        const id = spawnBg(manager);
+        await manager.getRecord(id)!.promise;
+        const record = manager.getRecord(id)!;
+        record.abortController.abort(); // spend the original controller post-completion
+        await record.releaseSession();
+        factory.mockImplementation(async (params) => {
+          expect(params.signal?.aborted).toBe(false);
+          return toSubagentSession(stub);
+        });
+        stub.resumeTurnLoop.mockResolvedValue("second");
+
+        expect(await manager.resume(id, "continue")).toEqual({ kind: "resumed", record });
+        expect(record.status).toBe("completed");
+      });
+
+      it("reports a resumed run that failed to rehydrate as resumed, carrying the error", async () => {
+        const { factory } = createSessionFactory(createMockSession(), "/tasks/agent.jsonl");
+        ({ manager } = createManager({ createSubagentSession: factory }));
+        const id = spawnBg(manager);
+        await manager.getRecord(id)!.promise;
+        const record = manager.getRecord(id)!;
+        await record.releaseSession();
+        // Simulate a lost transcript: pointers reference nothing reopenable.
+        record.markSessionEvicted("/tasks/gone.jsonl", "missing-child");
+        factory.mockRejectedValueOnce(new Error("transcript gone"));
+
+        const outcome = await manager.resume(id, "continue");
+
+        expect(outcome.kind).toBe("resumed");
+        expect(manager.getRecord(id)!.status).toBe("error");
       });
 
       it("reports a workspace torn down at run end, which the old guard let through", async () => {
@@ -1474,14 +1551,18 @@ describe("SubagentManager", () => {
       });
 
       it("starts no turn loop for a refused resume", async () => {
+        // No outputFile on the stub: eviction leaves no transcript pointers,
+        // so there is nothing to rehydrate and the refusal stands.
         const { factory, stub } = createSessionFactory();
         ({ manager } = createManager({ createSubagentSession: factory }));
         const id = spawnBg(manager);
         await manager.getRecord(id)!.promise;
         await manager.getRecord(id)!.releaseSession();
 
-        await manager.resume(id, "continue");
-
+        expect(await manager.resume(id, "continue")).toEqual({
+          kind: "refused",
+          reason: "no-session",
+        });
         expect(stub.resumeTurnLoop).not.toHaveBeenCalled();
       });
     });
@@ -1580,70 +1661,176 @@ describe("SubagentManager", () => {
   });
 });
 
-describe("resolveRetentionWindow", () => {
-  const policy = {
-    consumedSessionRetentionMinutes: 10,
-    unconsumedSessionRetentionMinutes: 720,
-  };
-
-  describe("an outcome the parent never collected", () => {
-    it("holds for the long window, measured from completion", () => {
-      expect(
-        resolveRetentionWindow(
-          { consumed: false, completedAt: 5_000, consumedAt: undefined, pendingQuestion: undefined },
-          policy,
-        ),
-      ).toEqual({ referenceAt: 5_000, windowMinutes: 720 });
-    });
-
-    it("measures from zero when the record has no completion time", () => {
-      expect(
-        resolveRetentionWindow(
-          { consumed: false, completedAt: undefined, consumedAt: undefined, pendingQuestion: undefined },
-          policy,
-        ),
-      ).toEqual({ referenceAt: 0, windowMinutes: 720 });
-    });
+describe("restoredAgentsFromEntries", () => {
+  const recordEntry = (data: Record<string, unknown>, id = "e1") => ({
+    type: "custom" as const,
+    id,
+    parentId: null,
+    timestamp: "2026-01-01T00:00:00.000Z",
+    customType: "subagents:record" as const,
+    data,
   });
 
-  describe("an outcome the parent collected", () => {
-    it("holds for the short window, measured from collection", () => {
-      expect(
-        resolveRetentionWindow(
-          { consumed: true, completedAt: 5_000, consumedAt: 9_000, pendingQuestion: undefined },
-          policy,
-        ),
-      ).toEqual({ referenceAt: 9_000, windowMinutes: 10 });
-    });
-
-    it("measures from completion when that is the later of the two", () => {
-      expect(
-        resolveRetentionWindow(
-          { consumed: true, completedAt: 9_000, consumedAt: 5_000, pendingQuestion: undefined },
-          policy,
-        ),
-      ).toEqual({ referenceAt: 9_000, windowMinutes: 10 });
-    });
+  it("parses a terminal record with transcript pointers and attribution", () => {
+    const inits = restoredAgentsFromEntries([
+      recordEntry({
+        id: "a1",
+        type: "general-purpose",
+        description: "old work",
+        status: "completed",
+        startedAt: 1000,
+        completedAt: 2000,
+        result: "done",
+        isBackground: true,
+        modelId: "test/model",
+        thinkingLevel: "high",
+        maxTurns: 10,
+        outputFile: "/tasks/a.jsonl",
+        childSessionId: "child-1",
+        toolUses: 3,
+        turnCount: 5,
+      }),
+    ]);
+    expect(inits).toEqual([
+      {
+        id: "a1",
+        type: "general-purpose",
+        description: "old work",
+        status: "completed",
+        isBackground: true,
+        startedAt: 1000,
+        completedAt: 2000,
+        result: "done",
+        modelId: "test/model",
+        thinkingLevel: "high",
+        maxTurns: 10,
+        outputFile: "/tasks/a.jsonl",
+        childSessionId: "child-1",
+        toolUses: 3,
+        turnCount: 5,
+      },
+    ]);
   });
 
-  describe("a collected outcome that still carries an unanswered question", () => {
-    it("holds for the long window, because the parent has not finished with it", () => {
-      expect(
-        resolveRetentionWindow(
-          { consumed: true, completedAt: 5_000, consumedAt: 9_000, pendingQuestion: "Which config wins?" },
-          policy,
-        ),
-      ).toEqual({ referenceAt: 5_000, windowMinutes: 720 });
-    });
+  it("lets the last record per id win", () => {
+    const inits = restoredAgentsFromEntries([
+      recordEntry({ id: "a1", type: "general-purpose", description: "old", status: "running" }, "e1"),
+      recordEntry({ id: "a1", type: "general-purpose", description: "new", status: "completed", result: "done" }, "e2"),
+    ]);
+    expect(inits).toHaveLength(1);
+    expect(inits[0]).toMatchObject({ id: "a1", description: "new", status: "completed" });
+  });
 
-    it("measures from completion rather than collection, as an uncollected outcome does", () => {
-      expect(
-        resolveRetentionWindow(
-          { consumed: true, completedAt: 9_000, consumedAt: 5_000, pendingQuestion: "Which config wins?" },
-          policy,
-        ),
-      ).toEqual({ referenceAt: 9_000, windowMinutes: 720 });
-    });
+  it("skips corrupt entries, unknown statuses, and other custom types", () => {
+    const inits = restoredAgentsFromEntries([
+      recordEntry({ id: "a1", type: "general-purpose", description: "ok", status: "completed" }),
+      recordEntry({ id: "", type: "general-purpose", description: "no id", status: "completed" }, "e2"),
+      recordEntry({ id: "a3", type: "general-purpose", description: "bogus", status: "teleporting" }, "e3"),
+      {
+        type: "custom" as const,
+        id: "e4",
+        parentId: null,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        customType: "other:thing" as const,
+        data: { id: "a4" },
+      },
+    ]);
+    expect(inits.map((init) => init.id)).toEqual(["a1"]);
+  });
+});
+
+describe("restoreAgents", () => {
+  let manager: SubagentManager;
+
+  afterEach(async () => {
+    await manager.dispose();
+  });
+
+  function managerWithSnapshot() {
+    return createManager({ getParentSnapshot: () => STUB_SNAPSHOT });
+  }
+
+  const parent = { parentSessionId: "parent-1", parentSessionFile: "/sessions/parent.jsonl" };
+
+  function terminalInit(overrides: Partial<RestoredAgentInit> = {}): RestoredAgentInit {
+    return {
+      id: "a1",
+      type: "general-purpose",
+      description: "old work",
+      status: "completed",
+      isBackground: true,
+      startedAt: 1000,
+      completedAt: 2000,
+      result: "done",
+      outputFile: "/sessions/parent/tasks/a.jsonl",
+      childSessionId: "child-1",
+      ...overrides,
+    };
+  }
+
+  it("materializes a terminal record evicted, with result and pointers", () => {
+    ({ manager } = managerWithSnapshot());
+    expect(manager.restoreAgents(parent, [terminalInit()])).toBe(1);
+    const record = manager.getRecord("a1")!;
+    expect(record.status).toBe("completed");
+    expect(record.result).toBe("done");
+    expect(record.isSessionReady()).toBe(false);
+    expect(record.canRehydrate()).toBe(true);
+    expect(record.outputFile).toBe("/sessions/parent/tasks/a.jsonl");
+    expect(record.childSessionId).toBe("child-1");
+  });
+
+  it.each([
+    "/sessions/original/tasks/a.jsonl",
+    "/sessions/parent/tasks/../../original/tasks/a.jsonl",
+    "relative.jsonl",
+  ])("does not resume copied metadata pointing outside this parent's storage: %s", async (outputFile) => {
+    ({ manager } = managerWithSnapshot());
+    expect(manager.restoreAgents(parent, [terminalInit({ outputFile })])).toBe(1);
+    const record = manager.getRecord("a1")!;
+    expect(record.result).toBe("done");
+    expect(record.canRehydrate()).toBe(false);
+    expect(await manager.resume("a1", "continue")).toEqual({ kind: "refused", reason: "no-session" });
+  });
+
+  it("restores the pending ask-back question", () => {
+    ({ manager } = managerWithSnapshot());
+    manager.restoreAgents(parent, [terminalInit({ pendingQuestion: "Which config?" })]);
+    expect(manager.getRecord("a1")!.pendingQuestion).toBe("Which config?");
+  });
+
+  it("converts a saved running record with pointers into an interrupted error", () => {
+    ({ manager } = managerWithSnapshot());
+    manager.restoreAgents(parent, [terminalInit({ status: "running", result: undefined })]);
+    const record = manager.getRecord("a1")!;
+    expect(record.status).toBe("error");
+    expect(record.error).toContain("interrupted");
+    expect(record.canRehydrate()).toBe(true);
+  });
+
+  it("skips a saved running record with nothing to rehydrate", () => {
+    ({ manager } = managerWithSnapshot());
+    expect(
+      manager.restoreAgents(parent, [terminalInit({ status: "queued", outputFile: undefined, childSessionId: undefined })]),
+    ).toBe(0);
+    expect(manager.getRecord("a1")).toBeUndefined();
+  });
+
+  it("never replaces a live record", async () => {
+    ({ manager } = managerWithSnapshot());
+    const liveId = spawnBg(manager, "live");
+    const live = manager.getRecord(liveId)!;
+    expect(
+      manager.restoreAgents(parent, [terminalInit({ id: liveId, description: "stale" })]),
+    ).toBe(0);
+    expect(manager.getRecord(liveId)).toBe(live);
+    manager.abort(liveId);
+  });
+
+  it("restores nothing without a parent snapshot", () => {
+    ({ manager } = createManager());
+    expect(manager.restoreAgents(parent, [terminalInit()])).toBe(0);
+    expect(manager.getRecord("a1")).toBeUndefined();
   });
 });
 

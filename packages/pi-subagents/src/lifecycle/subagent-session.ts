@@ -242,7 +242,7 @@ export class SubagentSession {
    * still resolves against a live registration.
    *
    * Idempotent: the guard is set before the first await, so concurrent callers
-   * (a retention sweep racing a manager teardown) emit and dispose exactly once.
+   * (an eviction sweep racing a manager teardown) emit and dispose exactly once.
    */
   async dispose(): Promise<void> {
     if (this.disposed) return;

@@ -62,22 +62,23 @@ it("fails admission/cancelled requests before executing and owns setup failure c
   await record.promise;
   expect(record.status).toBe("error"); expect(record.executionPending).toBe(false);
 });
-it("keeps interrupted execution and record-removal teardown owned until each actually settles", async () => {
+it("keeps interrupted execution and eviction teardown owned until each actually settles", async () => {
   const { manager, stub, record } = await fixture();
   let finish!: (value: string) => void;
   stub.resumeTurnLoop.mockImplementation(() => new Promise<string>((resolve) => { finish = resolve; }));
   manager.startResume(record.id, "answer"); manager.abort(record.id);
-  await manager.clearCompleted();
+  await manager.evictTerminalSessions();
   expect(manager.getRecord(record.id)).toBe(record);
   finish("partial"); await record.promise;
   let finishDispose!: () => void;
   stub.dispose.mockImplementationOnce(() => new Promise<void>((resolve) => { finishDispose = resolve; }));
-  const clearing = manager.clearCompleted();
-  expect(manager.getRecord(record.id)).toBeUndefined();
+  const evicting = manager.evictTerminalSessions();
+  // Durable: eviction drops the session, never the record.
+  expect(manager.getRecord(record.id)).toBe(record);
   expect(manager.pendingCleanup).toBe(true);
   const disposed = vi.fn(); const disposal = manager.dispose().then(disposed);
   await Promise.resolve(); expect(disposed).not.toHaveBeenCalled();
-  finishDispose(); await clearing; await disposal;
+  finishDispose(); await evicting; await disposal;
   expect(manager.pendingCleanup).toBe(false);
 });
 
