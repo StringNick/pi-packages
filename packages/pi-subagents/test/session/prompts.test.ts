@@ -30,6 +30,16 @@ const envNoGit: EnvInfo = {
 /** The cwd the inherited parent prompt is taken to name, unless a test varies it. */
 const PARENT_CWD = "/parent";
 
+/**
+ * The fallback identity `prompts.ts` hands a child when no parent contribution
+ * is usable, copied verbatim.
+ *
+ * Named once here because several tests only claim *this prompt fell back*;
+ * each used to spell a different fragment of the wording, so a change to the
+ * constant meant improvising a new fragment at every site.
+ */
+const GENERIC_BASE = `# Instructions
+Do what has been asked; nothing more, nothing less.`;
 function getDefaultConfig(name: string): AgentConfig {
   return testRegistry.resolveAgentConfig(name);
 }
@@ -1148,6 +1158,25 @@ describe("buildAgentPrompt", () => {
         expect(prompt.startsWith("# Role")).toBe(true);
         expect(prompt).toContain('<project_instructions path="/workspace/AGENTS.md">');
         expect(prompt).not.toContain("pi packages (docs/packages.md)");
+      });
+
+      // #904: the fallback is the identity of every agent type, so it cannot
+      // know which tools the child holds. Explore holds neither `edit` nor
+      // `write`, and says so itself twelve lines further down the prompt.
+      it("asserts no capability the child may not hold", () => {
+        const prompt = buildAgentPrompt(
+          getDefaultConfig("Explore"),
+          "/workspace",
+          env,
+          { systemPrompt: PI_BASE, cwd: PARENT_CWD, strategy: "portable" },
+        );
+
+        // Scoped to the adopted identity, which ends at the per-call header:
+        // Explore's own prompt names writing legitimately, to prohibit it.
+        const identity = prompt.slice(0, prompt.indexOf("<active_agent"));
+        expect(identity).not.toMatch(/\bwrite\b/i);
+        expect(identity).not.toMatch(/\bedit\b/i);
+        expect(identity).not.toMatch(/execute commands/i);
       });
     });
 

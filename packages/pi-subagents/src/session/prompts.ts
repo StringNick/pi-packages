@@ -307,8 +307,18 @@ function toPromptPath(cwd: string): string {
   return cwd.replaceAll("\\", "/");
 }
 
-/** Fallback base prompt when parent system prompt is unavailable (both modes). */
-const genericBase = `# Role
-You are a general-purpose coding agent for complex, multi-step tasks.
-You have full access to read, write, edit files, and execute commands.
+/**
+ * The identity a child adopts when no parent contribution is usable, in both
+ * prompt modes.
+ *
+ * Every agent type reaches this constant, so it can assert nothing about the
+ * child's tools, domain, or task — a role sentence here described one built-in
+ * agent type to all of them, and its capability list told a read-only child it
+ * could write files (#904, the claim [ADR 0008] removed one constant above).
+ * What it omits is supplied more accurately downstream: the `<active_agent>`
+ * tag names the agent, the agent's own prompt states its role, and the tool
+ * array — plus `@gotgenes/pi-permission-system`'s per-session block, when
+ * installed — states its tools.
+ */
+const genericBase = `# Instructions
 Do what has been asked; nothing more, nothing less.`;
