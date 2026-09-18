@@ -462,6 +462,7 @@ export class Subagent {
 	 * captured internally).
 	 */
 	async run(): Promise<void> {
+		this._abortController = new AbortController();
 		this.markRunning(Date.now());
 		this.execution.observer?.onStarted?.(this);
 		this.listeners.wireSignal(this.execution.signal, () => this.abort());
@@ -615,8 +616,11 @@ export class Subagent {
 	 * The returned promise always resolves (errors are captured internally) and is
 	 * published as the `promise` getter, so waiters track the resume rather than
 	 * the settled handle of the original run.
-	 * Each resumed turn has its own abort controller, joined to the caller signal;
-	 * stopping a resumed turn does not depend on the initial run's spent controller.
+	 * Each resumed turn runs under the record's own controller, reminted per run,
+	 * so a record aborted on its original run does not resume under a spent one.
+	 * A caller's `signal` is wired to abort() rather than only forwarded to the
+	 * turn loop, so both levers stop the same run and both leave the record
+	 * reading `stopped`.
 	 */
 	resume(prompt: string, signal?: AbortSignal): Promise<void> {
 		const controller = new AbortController();
@@ -629,7 +633,16 @@ export class Subagent {
 
 	/** The resume body. Always resolves — errors terminate through failResume(). */
 	private async runResume(prompt: string, signal?: AbortSignal): Promise<void> {
+		// Remint the record controller per resume, like the initial run: a record
+		// aborted on its original run must not resume under a spent controller (#913).
+		this._abortController = new AbortController();
+		// After resetForResume, which releases the previous run's listener handles.
 		this.resetForResume(Date.now());
+		// A caller's signal aborts the record rather than only the turn loop, so
+		// both levers stop the same run and both leave the record reading
+		// `stopped` (#913). abort() is guarded by isRunning, so re-entry through
+		// the joined resume signal is safe.
+		this.listeners.wireSignal(signal, () => this.abort());
 		// Live sessions keep the historical synchronous timing (reset, observer
 		// wiring, and turn-loop entry all happen in this turn); only an evicted
 		// session yields to rehydrate from disk first.
@@ -654,11 +667,11 @@ export class Subagent {
 				onCompact: (info) => this.execution.observer?.onCompacted?.(this, info),
 			}));
 			if (this._pendingSteers.length > 0) await this.flushPendingSteers();
-			const result = await subagentSession.resumeTurnLoop(prompt, signal);
-			if (signal?.aborted) this.stopResume();
+			const result = await subagentSession.resumeTurnLoop(prompt, this.abortController.signal);
+			if (this.abortController.signal.aborted) this.stopResume();
 			else this.completeResume(result);
 		} catch (err) {
-			if (signal?.aborted) this.stopResume();
+			if (this.abortController.signal.aborted) this.stopResume();
 			else this.failResume(err);
 		}
 	}
@@ -770,7 +783,9 @@ export class Subagent {
 	}
 
 	/**
-	 * Abort a running agent: fire AbortController and transition to stopped.
+	 * Abort a running agent: fire the current run's AbortController and transition
+	 * to stopped. The controller is reminted at the start of each run and resume,
+	 * so the lever always reaches whichever run is in flight.
 	 * Returns false if the agent is not running.
 	 * A still-queued agent is stopped via stopQueued(); its scheduled thunk
 	 * then no-ops on the queued-status guard.

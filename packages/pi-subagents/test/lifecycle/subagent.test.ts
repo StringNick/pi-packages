@@ -1576,7 +1576,7 @@ describe("Subagent — ask-back", () => {
 
 		await agent.resume("The project one.");
 
-		expect(stub.resumeTurnLoop).toHaveBeenCalledWith("The project one.", expect.any(AbortSignal));
+		expect(stub.resumeTurnLoop).toHaveBeenCalledWith("The project one.", agent.abortController.signal);
 		expect(agent.status).toBe("completed");
 		expect(agent.result).toBe("Used the project config. Done.");
 		// The question was answered, so it no longer stands.
@@ -1605,16 +1605,16 @@ describe("Subagent.resume() — happy path", () => {
 		expect(agent.result).toBe("resumed");
 	});
 
-	it("joins the caller signal to the resumable run's own stop signal", async () => {
+	it("hands resumeTurnLoop the record's own signal, not the caller's", async () => {
 		const { agent, stub } = createResumableAgent();
-		const caller = new AbortController();
-		await agent.resume("continue", caller.signal);
+		const callerSignal = new AbortController().signal;
+		await agent.resume("continue", callerSignal);
 		expect(stub.resumeTurnLoop).toHaveBeenCalledOnce();
 		expect(stub.resumeTurnLoop.mock.calls[0][0]).toBe("continue");
-		const joined = stub.resumeTurnLoop.mock.calls[0][1];
-		expect(joined?.aborted).toBe(false);
-		caller.abort();
-		expect(joined?.aborted).toBe(true);
+		// The caller's signal is wired through abort(); the loop runs under the
+		// record's own lever, so abort(id) reaches it too.
+		expect(stub.resumeTurnLoop.mock.calls[0][1]).toBe(agent.abortController.signal);
+		expect(stub.resumeTurnLoop.mock.calls[0][1]).not.toBe(callerSignal);
 	});
 
 	it("resets transition state before resuming", async () => {
@@ -1642,6 +1642,70 @@ describe("Subagent.resume() — cancellation ownership", () => {
 		expect(agent.status).toBe("stopped");
 		expect(agent.executionPending).toBe(false);
 		expect(settled).toHaveBeenCalledOnce();
+	});
+});
+
+describe("Subagent.resume() — cancellation", () => {
+	/**
+	 * Park the resumed turn loop until its signal fires, recording what it was
+	 * handed and whether that signal was already spent on arrival.
+	 */
+	function parkResumeUntilSignalled(stub: ReturnType<typeof createSubagentSessionStub>) {
+		const gate = Promise.withResolvers<string>();
+		const loop: { signal?: AbortSignal; abortedAtEntry?: boolean; signalled: boolean } = { signalled: false };
+		stub.resumeTurnLoop.mockImplementation((_prompt: string, signal?: AbortSignal) => {
+			loop.signal = signal;
+			loop.abortedAtEntry = signal?.aborted;
+			signal?.addEventListener("abort", () => {
+				loop.signalled = true;
+				gate.resolve("partial answer");
+			});
+			return gate.promise;
+		});
+		return loop;
+	}
+
+	it("aborting the record signals the resumed turn loop", async () => {
+		const { agent, stub } = createResumableAgent();
+		const loop = parkResumeUntilSignalled(stub);
+
+		const resumed = agent.resume("continue");
+		expect(agent.abort()).toBe(true);
+		await resumed;
+
+		expect(loop.abortedAtEntry).toBe(false);
+		expect(loop.signalled).toBe(true);
+		expect(agent.status).toBe("stopped");
+	});
+
+	it("a caller signal cancels through the record, which reads stopped", async () => {
+		const { agent, stub } = createResumableAgent();
+		const loop = parkResumeUntilSignalled(stub);
+		const caller = new AbortController();
+
+		const resumed = agent.resume("continue", caller.signal);
+		caller.abort();
+		await resumed;
+
+		expect(loop.signalled).toBe(true);
+		expect(agent.status).toBe("stopped");
+	});
+
+	it("gives a resume that follows an aborted run a lever that is not already spent", async () => {
+		const { agent, stub } = createResumableAgent();
+		agent.markRunning(Date.now());
+		agent.abort();
+		const spent = agent.abortController;
+		expect(spent.signal.aborted).toBe(true);
+		const loop = parkResumeUntilSignalled(stub);
+
+		const resumed = agent.resume("continue");
+		expect(agent.abort()).toBe(true);
+		await resumed;
+
+		expect(loop.signal).not.toBe(spent.signal);
+		expect(loop.abortedAtEntry).toBe(false);
+		expect(loop.signalled).toBe(true);
 	});
 });
 
