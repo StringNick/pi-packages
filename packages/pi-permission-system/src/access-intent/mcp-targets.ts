@@ -51,6 +51,35 @@ export function parseQualifiedMcpToolName(
   return { server, tool };
 }
 
+/**
+ * Find the configured server that owns `toolName` by the prefix convention.
+ *
+ * Returns the **longest** configured name that is the tool's leading
+ * `<server>_` segment, so `foo_bar_baz` belongs to `foo_bar` and never also to
+ * `foo`. Selecting here rather than trusting the caller's ordering keeps the
+ * rule true for any caller: the production loader sorts longest-first, but the
+ * `mcpServerNames` option does not.
+ */
+function findLongestPrefixServer(
+  toolName: string,
+  configuredServerNames: readonly string[],
+): string | null {
+  let longest: string | null = null;
+
+  for (const serverName of configuredServerNames) {
+    const trimmedServerName = serverName.trim();
+    if (!trimmedServerName || !toolName.startsWith(`${trimmedServerName}_`)) {
+      continue;
+    }
+
+    if (longest === null || trimmedServerName.length > longest.length) {
+      longest = trimmedServerName;
+    }
+  }
+
+  return longest;
+}
+
 function addDerivedMcpServerTargets(
   toolName: string,
   configuredServerNames: readonly string[],
@@ -61,6 +90,23 @@ function addDerivedMcpServerTargets(
     return;
   }
 
+  // Prefix convention (`github_search_code`): the name already carries its
+  // server, so the bare server is the only candidate worth deriving. A prefix
+  // hit also settles the name's convention, which is why the suffix pass below
+  // does not run — a tool ending in another configured server's name is a
+  // coincidence, not a second owner.
+  const prefixServer = findLongestPrefixServer(
+    trimmedToolName,
+    configuredServerNames,
+  );
+  if (prefixServer) {
+    targets.add(trimmedToolName);
+    targets.add(prefixServer);
+    return;
+  }
+
+  // Suffix convention (`search_code_github`): the server is not part of any
+  // candidate the caller will add, so the qualified forms are derived too.
   for (const serverName of configuredServerNames) {
     const trimmedServerName = serverName.trim();
     if (!trimmedServerName) {
@@ -68,10 +114,6 @@ function addDerivedMcpServerTargets(
     }
 
     if (!trimmedToolName.endsWith(`_${trimmedServerName}`)) {
-      continue;
-    }
-
-    if (trimmedToolName.startsWith(`${trimmedServerName}_`)) {
       continue;
     }
 

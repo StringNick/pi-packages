@@ -77,12 +77,69 @@ describe("createMcpPermissionTargets", () => {
     });
 
     it("derives server targets from configured server names when tool name ends with _<server>", () => {
-      const targets = createMcpPermissionTargets({ tool: "exa_search" }, [
+      const targets = createMcpPermissionTargets({ tool: "search_code_exa" }, [
         "exa",
       ]);
-      // exa_search ends with _exa? No — it ends with _search. This tool name
-      // does NOT trigger server derivation because it does not end with _exa.
-      expect(targets).toContain("exa_search");
+      expect(targets).toContain("exa_search_code_exa");
+      expect(targets).toContain("exa:search_code_exa");
+      expect(targets).toContain("exa");
+      expect(targets).toContain("search_code_exa");
+    });
+
+    describe("prefix-named tools (<server>_<tool>)", () => {
+      // The shape the mcp() proxy and aggregators such as mcp-combiner both
+      // produce. Before #928 a leading `<server>_` segment derived nothing, so
+      // an exact-server rule never fired for these names.
+      it("derives the bare server for a configured leading segment", () => {
+        const targets = createMcpPermissionTargets(
+          { tool: "github_search_code" },
+          ["github", "todoist"],
+        );
+        expect(targets).toContain("github");
+      });
+
+      it("reports the tool name ahead of the derived server", () => {
+        // Order decides which name a winning rule is reported under, so the
+        // specific tool name comes first and the prompt says what is running.
+        const targets = createMcpPermissionTargets(
+          { tool: "github_search_code" },
+          ["github"],
+        );
+        expect(targets[0]).toBe("github_search_code");
+        expect(targets[1]).toBe("github");
+      });
+
+      it("derives nothing when the leading segment names no configured server", () => {
+        const targets = createMcpPermissionTargets(
+          { tool: "github_search_code" },
+          ["todoist"],
+        );
+        expect(targets).not.toContain("github");
+        expect(targets).toContain("github_search_code");
+      });
+
+      it("picks the longest matching server whatever order the list arrives in", () => {
+        // The production loader sorts longest-first, but the invariant belongs
+        // to the derivation rather than to its caller: `foo_bar_baz` belongs to
+        // `foo_bar`, never also to `foo`.
+        const targets = createMcpPermissionTargets({ tool: "foo_bar_baz" }, [
+          "foo",
+          "foo_bar",
+        ]);
+        expect(targets).toContain("foo_bar");
+        expect(targets).not.toContain("foo");
+      });
+
+      it("suppresses a suffix coincidence once a prefix matches", () => {
+        // One naming convention per name: `foo_bar_baz_github` is a foo_bar
+        // tool that happens to end in a configured server's name.
+        const targets = createMcpPermissionTargets(
+          { tool: "foo_bar_baz_github" },
+          ["foo_bar", "github"],
+        );
+        expect(targets).toContain("foo_bar");
+        expect(targets).not.toContain("github");
+      });
     });
 
     it("does not include duplicate entries", () => {

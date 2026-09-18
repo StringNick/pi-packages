@@ -3727,7 +3727,11 @@ describe("mcp surface — last-match-wins across candidates", () => {
     // targets whenever any explicit mcp allow rule exists. Those rules sit
     // *before* the config layer, so a config rule matching any candidate
     // outranks them -- the attribution this pins.
-    it("attributes a describe to the baseline when no config rule matches a candidate", () => {
+    it("attributes a describe to the server rule once a candidate names it", () => {
+      // Prefix derivation (#928) gives this call a `github` candidate, so the
+      // config rule outranks the baseline. The decision is the same `allow`
+      // the baseline already produced; only the attribution moved, and the
+      // more specific reason is the better one to show.
       const { manager, cleanup } = createManagerWithConfig(
         { mcp: { github: "allow" } },
         ["github"],
@@ -3737,8 +3741,26 @@ describe("mcp surface — last-match-wins across candidates", () => {
           describe: "github_search_code",
         });
         expect(result.state).toBe("allow");
-        // A baseline-layer rule reports no `matchedPattern` -- only a config
-        // or session rule does -- so the winning candidate is the attribution.
+        expect(result.matchedPattern).toBe("github");
+      } finally {
+        cleanup();
+      }
+    });
+
+    it("still auto-allows a discovery operation no config rule can name", () => {
+      // The baseline's own constituency: a granted server plus a describe of a
+      // tool belonging to some *other*, unconfigured server. Nothing in the
+      // config matches any candidate, so the baseline decides and reports no
+      // `matchedPattern` -- only a config or session rule does.
+      const { manager, cleanup } = createManagerWithConfig(
+        { mcp: { github: "allow" } },
+        ["github"],
+      );
+      try {
+        const result = checkTool(manager, "mcp", {
+          describe: "unconfigured_server_tool",
+        });
+        expect(result.state).toBe("allow");
         expect(result.matchedPattern).toBeUndefined();
         expect(result.target).toBe("mcp_describe");
       } finally {
