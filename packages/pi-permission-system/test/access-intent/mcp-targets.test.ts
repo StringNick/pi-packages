@@ -130,6 +130,30 @@ describe("createMcpPermissionTargets", () => {
         expect(targets).not.toContain("foo");
       });
 
+      it("omits re-prefixed candidates when an explicit server repeats the prefix", () => {
+        // `github_github_search_code` names nothing a rule can usefully match,
+        // and it used to lead the list -- so it also became the reported
+        // target whenever no rule matched.
+        const targets = createMcpPermissionTargets(
+          { tool: "github_search_code", server: "github" },
+          [],
+        );
+        expect(targets).not.toContain("github_github_search_code");
+        expect(targets).not.toContain("github:github_search_code");
+        expect(targets[0]).toBe("github_search_code");
+        expect(targets).toContain("github");
+      });
+
+      it("keeps the qualified candidates when the explicit server is not the prefix", () => {
+        const targets = createMcpPermissionTargets(
+          { tool: "search_code", server: "github" },
+          [],
+        );
+        expect(targets).toContain("github_search_code");
+        expect(targets).toContain("github:search_code");
+        expect(targets).toContain("github");
+      });
+
       it("suppresses a suffix coincidence once a prefix matches", () => {
         // One naming convention per name: `foo_bar_baz_github` is a foo_bar
         // tool that happens to end in a configured server's name.

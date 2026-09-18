@@ -134,8 +134,17 @@ function pushMcpToolPermissionTargets(
   const resolvedTool = qualified?.tool ?? rawReference;
 
   if (resolvedServer) {
-    targets.add(`${resolvedServer}_${resolvedTool}`);
-    targets.add(`${resolvedServer}:${resolvedTool}`);
+    // A name already carrying its server needs no re-prefixing: the qualified
+    // forms would be `github_github_search_code`, which no rule can usefully
+    // name, and which led the list as the reported target. The tool name is
+    // itself the qualified form, so it leads instead — matching what prefix
+    // derivation produces when no explicit server accompanies the call.
+    if (resolvedTool.startsWith(`${resolvedServer}_`)) {
+      targets.add(resolvedTool);
+    } else {
+      targets.add(`${resolvedServer}_${resolvedTool}`);
+      targets.add(`${resolvedServer}:${resolvedTool}`);
+    }
     targets.add(resolvedServer);
   } else {
     addDerivedMcpServerTargets(resolvedTool, configuredServerNames, targets);
