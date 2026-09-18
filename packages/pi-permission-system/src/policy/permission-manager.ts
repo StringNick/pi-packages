@@ -2,9 +2,8 @@ import { join } from "node:path";
 import type { ResolvedAccessIntent } from "#src/access-intent/access-intent";
 import { normalizeInput } from "#src/access-intent/input-normalizer";
 import {
-  PATH_SURFACES,
-  surfaceFamilyOf,
   surfaceFamilyMembers,
+  surfaceFamilyOf,
 } from "#src/access-intent/path-surfaces";
 import { classifyToolKind } from "#src/access-intent/tool-kind";
 import {
@@ -30,7 +29,6 @@ import type { Rule, RuleOrigin, Ruleset } from "./rule";
 import {
   evaluate,
   evaluateAnyValue,
-  evaluateFirst,
   floorAllowsToAsk,
   isSurfaceFullyDenied,
   rewriteAsksToYolo,
@@ -382,9 +380,10 @@ export class PermissionManager implements ScopedPermissionManager {
 /**
  * Evaluate a normalized surface/values triple and shape the result.
  *
- * Path surfaces use {@link evaluateAnyValue} (last-match-wins across equivalent
- * aliases); every other surface keeps {@link evaluateFirst}. Shared by the
- * `"tool"` and `"path-values"` branches of {@link PermissionManager.check}.
+ * Every surface resolves through {@link evaluateAnyValue}, so a rule's position
+ * in the config decides and the candidate list only determines which name the
+ * decision is reported under. Shared by the `"tool"` and `"path-values"`
+ * branches of {@link PermissionManager.check}.
  */
 function buildCheckResult(
   surface: string,
@@ -395,9 +394,7 @@ function buildCheckResult(
   fullRules: Ruleset,
   flavor: PathFlavor,
 ): PermissionCheckResult {
-  const { rule, value } = PATH_SURFACES.has(surface)
-    ? evaluateAnyValue(surface, values, fullRules, flavor)
-    : evaluateFirst(surface, values, fullRules, flavor);
+  const { rule, value } = evaluateAnyValue(surface, values, fullRules, flavor);
 
   // For MCP, replace the normalizer's fallback target with the actual
   // matched candidate value so PermissionCheckResult.target is accurate.

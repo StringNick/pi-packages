@@ -216,45 +216,15 @@ export function evaluateMostRestrictive(
 }
 
 /**
- * Evaluate a surface against an ordered list of candidate values, stopping at
- * the first candidate that matches a non-default rule (last-match-wins within
- * each candidate, first-non-default-wins across candidates).
+ * Evaluate a set of lookup values as alternative names for one access.
  *
- * Used by MCP (multi-candidate target list) and, uniformly, by all other
- * surfaces (single-element candidate list).
- *
- * Returns the matched rule and the candidate value that produced it.
- * When every candidate matches only the synthesized default, falls back to
- * evaluating the first candidate so the caller always receives a concrete
- * result.
- */
-export function evaluateFirst(
-  surface: string,
-  values: string[],
-  rules: Ruleset,
-  flavor: PathFlavor,
-): { rule: Rule; value: string } {
-  for (const value of values) {
-    const rule = evaluate(surface, value, rules, flavor);
-    if (rule.layer !== "default") {
-      return { rule, value };
-    }
-  }
-  // All candidates matched only the synthesized default — use the first.
-  const fallbackValue = values[0] ?? "*";
-  return {
-    rule: evaluate(surface, fallbackValue, rules, flavor),
-    value: fallbackValue,
-  };
-}
-
-/**
- * Evaluate equivalent lookup values as aliases of the same path.
- *
- * Unlike `evaluateFirst()`, this preserves rule ordering across aliases: the
- * last rule that matches any alias wins. This lets absolute allowlists and
- * legacy relative rules coexist without a catch-all match on the first alias
- * masking a later, more specific rule on another alias.
+ * Preserves rule ordering across the whole set: the last rule matching **any**
+ * value wins, and the reported value is the first one that rule matches. This
+ * is last-match-wins (see `evaluate()`) lifted from a single value to a
+ * candidate list, so a catch-all matched by one value cannot mask a later, more
+ * specific rule matched by another — whether the values are spellings of one
+ * path (`/proj/src/a.ts` and `src/a.ts`) or names for one MCP call
+ * (`github_search_code`, `github`, `mcp_call`).
  */
 export function evaluateAnyValue(
   surface: string,

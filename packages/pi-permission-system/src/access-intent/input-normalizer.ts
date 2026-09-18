@@ -103,15 +103,17 @@ function buildInputForSurface(
 
 /**
  * Surface-normalized representation of a tool invocation used by
- * `checkPermission()` to feed a single `evaluateFirst()` call.
+ * `checkPermission()` to feed a single `evaluateAnyValue()` call.
  */
 export interface NormalizedInput {
   /** The permission surface for `evaluate()` (e.g. "bash", "mcp", "skill"). */
   surface: string;
   /**
-   * Candidate lookup values in priority order (most-specific first).
-   * Most surfaces produce a single-element array; MCP produces a
-   * multi-candidate list derived from the invocation input.
+   * Alternative lookup names for this one access, most-specific first.
+   * MCP is the only surface producing more than one; every other surface
+   * produces a single-element array. Order does not decide which rule wins
+   * (rule position does) — it decides which name the decision is reported
+   * under when the winning rule matches several.
    */
   values: string[];
   /**

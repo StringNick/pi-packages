@@ -107,8 +107,11 @@ function pushMcpToolPermissionTargets(
  * Derive the ordered list of MCP permission-lookup candidates from a raw MCP
  * tool invocation input.
  *
- * Candidates are ordered from most-specific to least-specific so that
- * `evaluateFirst()` stops at the first non-default match.
+ * Candidates are ordered from most-specific to least-specific. The order does
+ * not decide which rule wins — `evaluateAnyValue()` gives that to the last
+ * matching rule — but it decides which candidate a winning rule is reported
+ * against, so the most specific name the rule matches is the one the prompt
+ * and the review log show.
  */
 export function createMcpPermissionTargets(
   input: unknown,

@@ -3573,3 +3573,177 @@ describe("check — path-values intent", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// #928: the mcp surface honors last-match-wins across its candidate list.
+//
+// Every surface but `mcp` produces a single candidate, so `mcp` is the only
+// place where "which candidate" and "which rule" can disagree. Before #928 the
+// first candidate matching any config rule ended the search, which let a
+// catch-all written *above* a specific rule mask it -- the opposite of the
+// last-match-wins contract README.md publishes for this surface.
+// ---------------------------------------------------------------------------
+
+describe("mcp surface — last-match-wins across candidates", () => {
+  describe("the configuration.md example", () => {
+    // docs/configuration.md publishes this exact config under `### `mcp` Surface`.
+    const documentedConfig = {
+      mcp: {
+        "*": "ask",
+        mcp_status: "allow",
+        mcp_list: "allow",
+        "myServer:*": "ask",
+        dangerousServer: "deny",
+      },
+    };
+    const servers = ["myServer", "dangerousServer"];
+
+    it("grants the documented mcp_list allow for a server listing", () => {
+      const { manager, cleanup } = createManagerWithConfig(
+        documentedConfig,
+        servers,
+      );
+      try {
+        const result = checkTool(manager, "mcp", { server: "myServer" });
+        expect(result.state).toBe("allow");
+        expect(result.matchedPattern).toBe("mcp_list");
+      } finally {
+        cleanup();
+      }
+    });
+
+    it("enforces the documented dangerousServer deny for an explicit server", () => {
+      const { manager, cleanup } = createManagerWithConfig(
+        documentedConfig,
+        servers,
+      );
+      try {
+        const result = checkTool(manager, "mcp", {
+          tool: "wipe",
+          server: "dangerousServer",
+        });
+        expect(result.state).toBe("deny");
+        expect(result.matchedPattern).toBe("dangerousServer");
+      } finally {
+        cleanup();
+      }
+    });
+  });
+
+  describe("a catch-all above a specific rule no longer masks it", () => {
+    it("allows a discovery operation named after the catch-all", () => {
+      // The shape reported in #687: the wildcard matches the tool-name
+      // candidate before the `mcp_describe` candidate is ever reached.
+      const { manager, cleanup } = createManagerWithConfig(
+        { mcp: { "*": "ask", mcp_describe: "allow" } },
+        ["github"],
+      );
+      try {
+        const result = checkTool(manager, "mcp", {
+          describe: "github_list_issues",
+        });
+        expect(result.state).toBe("allow");
+        expect(result.matchedPattern).toBe("mcp_describe");
+      } finally {
+        cleanup();
+      }
+    });
+
+    it.each([
+      ["a suffix-named tool", { tool: "search_code_github" }],
+      ["a qualified tool name", { tool: "github:search_code" }],
+      [
+        "an explicit server argument",
+        { tool: "search_code", server: "github" },
+      ],
+    ])("denies the named server for %s", (_label, input) => {
+      const { manager, cleanup } = createManagerWithConfig(
+        { mcp: { "*": "allow", github: "deny" } },
+        ["github"],
+      );
+      try {
+        const result = checkTool(manager, "mcp", input);
+        expect(result.state).toBe("deny");
+        expect(result.matchedPattern).toBe("github");
+      } finally {
+        cleanup();
+      }
+    });
+  });
+
+  describe("rule position decides, not rule specificity", () => {
+    // The control for the block above: `evaluateAnyValue` privileges where a
+    // rule sits in the config, not how specific its pattern is. A catch-all
+    // written last still wins, which is what last-match-wins means.
+    it.each([
+      ["a suffix-named tool", { tool: "search_code_github" }],
+      ["a qualified tool name", { tool: "github:search_code" }],
+      [
+        "an explicit server argument",
+        { tool: "search_code", server: "github" },
+      ],
+    ])(
+      "lets a trailing catch-all override the server rule for %s",
+      (_label, input) => {
+        const { manager, cleanup } = createManagerWithConfig(
+          { mcp: { github: "deny", "*": "ask" } },
+          ["github"],
+        );
+        try {
+          const result = checkTool(manager, "mcp", input);
+          expect(result.state).toBe("ask");
+          expect(result.matchedPattern).toBe("*");
+        } finally {
+          cleanup();
+        }
+      },
+    );
+  });
+
+  describe("session grants", () => {
+    it("honors a session grant matching a later candidate than the config rule", () => {
+      const { manager, cleanup } = createManagerWithConfig(
+        { mcp: { exa_search: "deny" } },
+        ["exa"],
+      );
+      try {
+        const result = checkTool(
+          manager,
+          "mcp",
+          { tool: "exa_search" },
+          undefined,
+          [sessionRule("mcp", "mcp_call")],
+        );
+        expect(result.state).toBe("allow");
+        expect(result.source).toBe("session");
+      } finally {
+        cleanup();
+      }
+    });
+  });
+
+  describe("baseline discovery auto-allow", () => {
+    // `synthesizeBaseline` emits allow rules for the five `mcp_*` metadata
+    // targets whenever any explicit mcp allow rule exists. Those rules sit
+    // *before* the config layer, so a config rule matching any candidate
+    // outranks them -- the attribution this pins.
+    it("attributes a describe to the baseline when no config rule matches a candidate", () => {
+      const { manager, cleanup } = createManagerWithConfig(
+        { mcp: { github: "allow" } },
+        ["github"],
+      );
+      try {
+        const result = checkTool(manager, "mcp", {
+          describe: "github_search_code",
+        });
+        expect(result.state).toBe("allow");
+        // A baseline-layer rule reports no `matchedPattern` -- only a config
+        // or session rule does -- so the winning candidate is the attribution.
+        expect(result.matchedPattern).toBeUndefined();
+        expect(result.target).toBe("mcp_describe");
+      } finally {
+        cleanup();
+      }
+    });
+  });
+});

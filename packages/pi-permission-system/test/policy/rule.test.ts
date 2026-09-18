@@ -4,7 +4,6 @@ import type { Rule, RuleOrigin, Ruleset } from "#src/policy/rule";
 import {
   evaluate,
   evaluateAnyValue,
-  evaluateFirst,
   evaluateMostRestrictive,
   floorAllowsToAsk,
   isSurfaceFullyDenied,
@@ -477,120 +476,6 @@ describe("evaluate", () => {
   });
 });
 
-describe("evaluateFirst", () => {
-  const defaultRule: Rule = {
-    surface: "*",
-    pattern: "*",
-    action: "ask",
-    layer: "default",
-    origin: "builtin",
-  };
-  const allowBash: Rule = {
-    surface: "bash",
-    pattern: "git *",
-    action: "allow",
-    layer: "config",
-    origin: "global",
-  };
-  const denyMcp: Rule = {
-    surface: "mcp",
-    pattern: "exa_search",
-    action: "deny",
-    layer: "config",
-    origin: "global",
-  };
-
-  test("returns the first candidate that matches a non-default rule", () => {
-    const rules: Ruleset = [defaultRule, allowBash];
-    const result = evaluateFirst(
-      "bash",
-      ["git status", "*"],
-      rules,
-      posixPathFlavor,
-    );
-    expect(result.rule).toEqual(allowBash);
-    expect(result.value).toBe("git status");
-  });
-
-  test("skips candidates that only match the default rule", () => {
-    // "npm install" matches only the default; "*" also matches only the
-    // default — falls back to first candidate.
-    const rules: Ruleset = [defaultRule];
-    const result = evaluateFirst(
-      "bash",
-      ["npm install", "*"],
-      rules,
-      posixPathFlavor,
-    );
-    expect(result.rule.layer).toBe("default");
-    expect(result.value).toBe("npm install");
-  });
-
-  test("falls back to first candidate when all candidates match only the default", () => {
-    const rules: Ruleset = [defaultRule];
-    const result = evaluateFirst(
-      "bash",
-      ["a", "b", "c"],
-      rules,
-      posixPathFlavor,
-    );
-    expect(result.value).toBe("a");
-  });
-
-  test("stops at first non-default match, does not continue to remaining candidates", () => {
-    // "exa_search" matches denyMcp (non-default). The loop stops there;
-    // "mcp" is never evaluated even though it would match a different rule.
-    const allowMcpCatchAll: Rule = {
-      surface: "mcp",
-      pattern: "mcp",
-      action: "allow",
-      layer: "config",
-      origin: "global",
-    };
-    const rules: Ruleset = [defaultRule, denyMcp, allowMcpCatchAll];
-    const result = evaluateFirst(
-      "mcp",
-      ["exa_search", "mcp"],
-      rules,
-      posixPathFlavor,
-    );
-    expect(result.rule).toEqual(denyMcp);
-    expect(result.value).toBe("exa_search");
-  });
-
-  test("skips candidates that match only the default and continues to next", () => {
-    // "unknown_tool" matches only the universal default;
-    // "exa_search" matches denyMcp (non-default) — that is the result.
-    const rules: Ruleset = [defaultRule, denyMcp];
-    const result = evaluateFirst(
-      "mcp",
-      ["unknown_tool", "exa_search"],
-      rules,
-      posixPathFlavor,
-    );
-    expect(result.rule).toEqual(denyMcp);
-    expect(result.value).toBe("exa_search");
-  });
-
-  test("single-candidate array behaves like evaluate()", () => {
-    const rules: Ruleset = [defaultRule, allowBash];
-    const result = evaluateFirst(
-      "bash",
-      ["git status"],
-      rules,
-      posixPathFlavor,
-    );
-    expect(result.rule).toEqual(allowBash);
-    expect(result.value).toBe("git status");
-  });
-
-  test("uses '*' as fallback value when values array is empty", () => {
-    const rules: Ruleset = [defaultRule];
-    const result = evaluateFirst("bash", [], rules, posixPathFlavor);
-    expect(result.value).toBe("*");
-  });
-});
-
 describe("evaluateAnyValue", () => {
   const catchAllAllow: Rule = {
     surface: "path",
@@ -643,6 +528,27 @@ describe("evaluateAnyValue", () => {
     );
     expect(result.rule).toEqual(absoluteAllow);
     expect(result.value).toBe("/proj/src/foo.ts");
+  });
+
+  test("falls back to the first value when only the synthesized default matches", () => {
+    // Inherited from the deleted `evaluateFirst` suite: a candidate list that
+    // reaches nothing but the universal default still reports the first
+    // candidate, so the caller always receives a concrete value.
+    const universalDefault: Rule = {
+      surface: "*",
+      pattern: "*",
+      action: "ask",
+      layer: "default",
+      origin: "builtin",
+    };
+    const result = evaluateAnyValue(
+      "path",
+      ["a", "b", "c"],
+      [universalDefault],
+      posixPathFlavor,
+    );
+    expect(result.rule.layer).toBe("default");
+    expect(result.value).toBe("a");
   });
 
   test("falls back to the first value's default when no rule matches", () => {
