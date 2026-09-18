@@ -19,7 +19,10 @@ function longResult(lines: number): string {
 }
 
 function makeManager(records: Map<string, Subagent> = new Map()): GetResultToolManager {
-	return { getRecord: (id: string) => records.get(id) };
+	return {
+		getRecord: (id: string) => records.get(id),
+		listAgents: () => [...records.values()],
+	};
 }
 
 async function execute(
@@ -126,6 +129,28 @@ describe("GetResultTool", () => {
 	it("returns not-found message for unknown agent ID", async () => {
 		const result = await execute(makeManager(), { agent_id: "unknown" });
 		expect(result.content[0].text).toContain("Agent not found");
+	});
+
+	it("names the session-switch cause when no agents are registered", async () => {
+		const result = await execute(makeManager(), { agent_id: "unknown" });
+		expect(result.content[0].text).toContain("No agents are registered");
+	});
+
+	it("suggests the registered ID when the request adds one trailing char", async () => {
+		// The reported shape: a 17-char record ID retyped with one extra char.
+		const records = new Map([["807081f0-bb07-462", createTestSubagent({ id: "807081f0-bb07-462" })]]);
+		const result = await execute(makeManager(records), { agent_id: "807081f0-bb07-4627" });
+		const text = result.content[0].text;
+		expect(text).toContain('Did you mean "807081f0-bb07-462"');
+		expect(text).toContain("Copy the <task-id>");
+	});
+
+	it("lists available agents when nothing is close", async () => {
+		const records = new Map([["agent-1", createTestSubagent()]]);
+		const result = await execute(makeManager(records), { agent_id: "zzz" });
+		const text = result.content[0].text;
+		expect(text).toContain("No close match");
+		expect(text).toContain('"agent-1"');
 	});
 
 	it("returns status and result for completed agent", async () => {

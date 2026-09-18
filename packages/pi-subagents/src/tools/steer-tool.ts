@@ -1,5 +1,6 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { formatAgentNotFound } from "#src/tools/agent-id-suggest";
 import { formatLifetimeTokens, textResult } from "#src/tools/helpers";
 import type { SteerOutcome, Subagent } from "#src/types";
 
@@ -7,6 +8,7 @@ import type { SteerOutcome, Subagent } from "#src/types";
 
 export interface SteerToolManager {
 	getRecord(id: string): Subagent | undefined;
+	listAgents(): Subagent[];
 }
 
 export interface SteerToolEvents {
@@ -30,9 +32,7 @@ export class SteerTool {
 	) {
 		const record = this.manager.getRecord(params.agent_id);
 		if (!record) {
-			return textResult(
-				`Agent not found: "${params.agent_id}". Records are cleared at session start/switch, so it may be from a previous session.`,
-			);
+			return textResult(formatAgentNotFound(params.agent_id, this.manager.listAgents()));
 		}
 
 		let outcome: SteerOutcome;
@@ -90,7 +90,8 @@ export class SteerTool {
 				"and be injected into its conversation, allowing you to redirect its work mid-run. Only works on running agents.",
 			parameters: Type.Object({
 				agent_id: Type.String({
-					description: "The agent ID to steer (must be currently running).",
+					description:
+						"The agent ID to steer (must be currently running). Copy the <task-id> from the subagent notification exactly — do not retype it from memory.",
 				}),
 				message: Type.String({
 					description:

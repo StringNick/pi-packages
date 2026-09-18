@@ -8,6 +8,7 @@ import { STUB_CTX } from "#test/helpers/stub-ctx";
 function makeManager(records: Map<string, Subagent> = new Map()): SteerToolManager {
 	return {
 		getRecord: (id: string) => records.get(id),
+		listAgents: () => [...records.values()],
 	};
 }
 
@@ -41,6 +42,15 @@ describe("SteerTool", () => {
 		const result = await execute(makeManager(), makeEvents(), { agent_id: "unknown", message: "hi" });
 		expect(result.content[0].text).toContain("Agent not found");
 		expect(result.content[0].text).not.toContain("cleaned up");
+	});
+
+	it("suggests the registered ID on a near-miss", async () => {
+		const records = new Map([["807081f0-bb07-462", createTestSubagent({ id: "807081f0-bb07-462" })]]);
+		const result = await execute(makeManager(records), makeEvents(), {
+			agent_id: "807081f0-bb07-4627",
+			message: "hi",
+		});
+		expect(result.content[0].text).toContain('Did you mean "807081f0-bb07-462"');
 	});
 
 	it("rejects steering a non-running agent", async () => {

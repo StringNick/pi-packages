@@ -3,6 +3,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import type { AgentConfigLookup } from "#src/config/agent-types";
+import { formatAgentNotFound } from "#src/tools/agent-id-suggest";
 import {
 	type GetResultDetails,
 	PREVIEW_CHARS,
@@ -19,6 +20,7 @@ import { GLYPHS } from "#src/ui/glyphs";
 
 export interface GetResultToolManager {
 	getRecord(id: string): Subagent | undefined;
+	listAgents(): Subagent[];
 }
 
 // ---- Class ----
@@ -38,7 +40,9 @@ export class GetResultTool {
 	) {
 		const record = this.manager.getRecord(params.agent_id);
 		if (!record) {
-			return textResult<GetResultDetails>(`Agent not found: "${params.agent_id}". Records are cleared at session start/switch, so it may be from a previous session.`);
+			return textResult<GetResultDetails>(
+				formatAgentNotFound(params.agent_id, this.manager.listAgents()),
+			);
 		}
 
 		// Wait for completion if requested. The record owns the decision of whether
@@ -133,7 +137,8 @@ export class GetResultTool {
 				"Retrieve full output beyond a pushed result, recover truncated output, inspect a transcript (verbose: true), or diagnose a subagent problem. Results and questions are pushed automatically; do not poll or call this tool just to wait. Use the agent ID returned by subagent. Token counters accumulate provider-reported usage from completed assistant messages; they do not estimate the currently streaming response.",
 			parameters: Type.Object({
 				agent_id: Type.String({
-					description: "The agent ID whose output or diagnostics you need.",
+					description:
+						"The agent ID whose output or diagnostics you need. Copy the <task-id> from the subagent notification exactly — do not retype it from memory.",
 				}),
 				wait: Type.Optional(
 					Type.Boolean({
