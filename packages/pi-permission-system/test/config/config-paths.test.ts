@@ -15,7 +15,7 @@ import {
 } from "#src/config/config-paths";
 
 describe("config-paths", () => {
-  const agentDir = "/home/user/.pi/agent";
+  const agentDir = "/home/user/.zrow/agent";
   const cwd = "/projects/my-app";
   const extensionRoot = "/opt/extensions/pi-permission-system";
 
@@ -38,14 +38,14 @@ describe("config-paths", () => {
       );
     });
 
-    it("getProjectConfigPath returns .pi/extensions/pi-permission-system/config.json under cwd", () => {
+    it("getProjectConfigPath returns .zrow/extensions/pi-permission-system/config.json under cwd", () => {
       expect(getProjectConfigPath(cwd)).toBe(
-        join(cwd, ".pi", "extensions", "pi-permission-system", "config.json"),
+        join(cwd, ".zrow", "extensions", "pi-permission-system", "config.json"),
       );
     });
 
-    it("getProjectAgentsDir returns .pi/agents under cwd", () => {
-      expect(getProjectAgentsDir(cwd)).toBe(join(cwd, ".pi", "agents"));
+    it("getProjectAgentsDir returns .zrow/agents under cwd", () => {
+      expect(getProjectAgentsDir(cwd)).toBe(join(cwd, ".zrow", "agents"));
     });
   });
 
@@ -56,9 +56,9 @@ describe("config-paths", () => {
       );
     });
 
-    it("getLegacyProjectPolicyPath returns .pi/agent/pi-permissions.jsonc under cwd", () => {
+    it("getLegacyProjectPolicyPath returns .zrow/agent/pi-permissions.jsonc under cwd", () => {
       expect(getLegacyProjectPolicyPath(cwd)).toBe(
-        join(cwd, ".pi", "agent", "pi-permissions.jsonc"),
+        join(cwd, ".zrow", "agent", "pi-permissions.jsonc"),
       );
     });
 

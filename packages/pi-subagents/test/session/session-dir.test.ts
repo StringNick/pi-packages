@@ -4,11 +4,11 @@ import { deriveSubagentSessionDir } from "#src/session/session-dir";
 describe("deriveSubagentSessionDir", () => {
   it("returns a tasks/ subdirectory nested under the parent session basename", () => {
     const result = deriveSubagentSessionDir(
-      "/home/user/.pi/agent/sessions/--project--/2026-05-20T12-00-00Z_.jsonl",
+      "/home/user/.zrow/agent/sessions/--project--/2026-05-20T12-00-00Z_.jsonl",
       "/home/user/project",
     );
     expect(result).toBe(
-      "/home/user/.pi/agent/sessions/--project--/2026-05-20T12-00-00Z_/tasks",
+      "/home/user/.zrow/agent/sessions/--project--/2026-05-20T12-00-00Z_/tasks",
     );
   });
 

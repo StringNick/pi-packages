@@ -4,15 +4,15 @@ import { deriveParentSessionFile } from "#src/parent-session";
 describe("deriveParentSessionFile", () => {
   it("derives parent file from a subagent session path", () => {
     const sessionFile =
-      "/home/user/.pi/agent/sessions/--project--/2026-05-20T12-00-00Z_/tasks/2026-05-20T12-01-00Z_.jsonl";
+      "/home/user/.zrow/agent/sessions/--project--/2026-05-20T12-00-00Z_/tasks/2026-05-20T12-01-00Z_.jsonl";
     expect(deriveParentSessionFile(sessionFile)).toBe(
-      "/home/user/.pi/agent/sessions/--project--/2026-05-20T12-00-00Z_.jsonl",
+      "/home/user/.zrow/agent/sessions/--project--/2026-05-20T12-00-00Z_.jsonl",
     );
   });
 
   it("returns undefined when not in a tasks directory", () => {
     const sessionFile =
-      "/home/user/.pi/agent/sessions/--project--/2026-05-20T12-00-00Z_.jsonl";
+      "/home/user/.zrow/agent/sessions/--project--/2026-05-20T12-00-00Z_.jsonl";
     expect(deriveParentSessionFile(sessionFile)).toBeUndefined();
   });
 

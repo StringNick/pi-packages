@@ -1,10 +1,10 @@
 /**
- * custom-agents.ts — Load user-defined agents from project (.pi/agents/) and global ($PI_CODING_AGENT_DIR/agents/, default ~/.pi/agent/agents/) locations.
+ * custom-agents.ts — Load user-defined agents from project (.zrow/agents/) and global ($PI_CODING_AGENT_DIR/agents/, default ~/.zrow/agent/agents/) locations.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { BUILTIN_TOOL_NAMES } from "#src/config/agent-types";
 import { DEFAULT_AGENT_NAMES } from "#src/config/default-agents";
 import { isLockableField, type LockDeclaration } from "#src/config/invocation-config";
@@ -15,8 +15,8 @@ import type { AgentConfig } from "#src/types";
 /**
  * Scan for custom agent .md files from multiple locations.
  * Discovery hierarchy (higher priority wins):
- *   1. Project: <cwd>/.pi/agents/*.md
- *   2. Global:  $PI_CODING_AGENT_DIR/agents/*.md (default: ~/.pi/agent/agents/*.md)
+ *   1. Project: <cwd>/.zrow/agents/*.md
+ *   2. Global:  $PI_CODING_AGENT_DIR/agents/*.md (default: ~/.zrow/agent/agents/*.md)
  *
  * Project-level agents override global ones with the same name.
  * Any name is allowed — a file matching a builtin case-insensitively (e.g. a
@@ -41,7 +41,7 @@ export interface LoadCustomAgentsOptions {
 
 export function loadCustomAgents(cwd: string, options: LoadCustomAgentsOptions = {}): Map<string, AgentConfig> {
   const globalDir = join(options.agentDir ?? getAgentDir(), "agents");
-  const projectDir = join(cwd, ".pi", "agents");
+  const projectDir = join(cwd, CONFIG_DIR_NAME, "agents");
 
   const agents = new Map<string, AgentConfig>();
   loadFromDir(globalDir, agents, "global", options);   // lower priority

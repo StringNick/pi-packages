@@ -94,7 +94,7 @@ export function buildTypeListText(registry: TypeListRegistry, agentDir: string):
     ...(defaultDescs.length > 0 ? ["Default agents:", ...defaultDescs] : []),
     ...(customDescs.length > 0 ? ["", "Custom agents:", ...customDescs] : []),
     "",
-    `Custom agents can be defined in .pi/agents/<name>.md (project) or ${agentDir}/agents/<name>.md (global) — they are picked up automatically. Project-level agents override global ones. Creating a .md file with the same name as a default agent overrides it.`,
+    `Custom agents can be defined in .zrow/agents/<name>.md (project) or ${agentDir}/agents/<name>.md (global) — they are picked up automatically. Project-level agents override global ones. Creating a .md file with the same name as a default agent overrides it.`,
   ].join("\n");
 }
 

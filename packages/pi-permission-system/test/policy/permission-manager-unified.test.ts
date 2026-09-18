@@ -1743,8 +1743,8 @@ describe("PermissionManager — configureForCwd and agentDir option", () => {
     }
   });
 
-  it("configureForCwd(cwd) derives projectAgentsDir at <cwd>/.pi/agents (regression: #428)", () => {
-    // Bug: old code derived <cwd>/.pi/agent/agents instead of <cwd>/.pi/agents.
+  it("configureForCwd(cwd) derives projectAgentsDir at <cwd>/.zrow/agents (regression: #428)", () => {
+    // Bug: old code derived <cwd>/.zrow/agent/agents instead of <cwd>/.zrow/agents.
     // This test pins the correct path and verifies agentsDir is unchanged.
     const { agentDir, cwd, cleanup } = createAgentDirHarness({
       globalPermission: { read: "allow" },
@@ -1760,7 +1760,7 @@ describe("PermissionManager — configureForCwd and agentDir option", () => {
     }
   });
 
-  it("configureForCwd(cwd) enforces permission: frontmatter from <cwd>/.pi/agents/<agent>.md (regression: #428)", () => {
+  it("configureForCwd(cwd) enforces permission: frontmatter from <cwd>/.zrow/agents/<agent>.md (regression: #428)", () => {
     // Bug: wrong directory meant project-agent frontmatter was never loaded.
     const { agentDir, cwd, cleanup } = createAgentDirHarness({
       globalPermission: { read: "allow" },

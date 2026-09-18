@@ -95,7 +95,7 @@ describe("buildTypeListText", () => {
       defaults: ["worker"],
       resolve: () => ({ description: "Implementation worker", model: undefined }),
     });
-    const result = buildTypeListText(registry, "/home/.pi");
+    const result = buildTypeListText(registry, "/home/.zrow");
     expect(result).toContain("- worker: Implementation worker");
   });
 
@@ -104,14 +104,14 @@ describe("buildTypeListText", () => {
       defaults: ["explore"],
       resolve: () => ({ description: "Fast explorer", model: "anthropic/claude-haiku-4-5" }),
     });
-    const result = buildTypeListText(registry, "/home/.pi");
+    const result = buildTypeListText(registry, "/home/.zrow");
     expect(result).toContain("- explore: Fast explorer (claude-haiku-4-5)");
   });
 
   it("includes agentDir in the trailing hint line", () => {
     const registry = makeRegistry({});
-    const result = buildTypeListText(registry, "/home/user/.pi");
-    expect(result).toContain("/home/user/.pi");
+    const result = buildTypeListText(registry, "/home/user/.zrow");
+    expect(result).toContain("/home/user/.zrow");
   });
 
   it("adds Custom agents section when user agents are present", () => {
@@ -123,7 +123,7 @@ describe("buildTypeListText", () => {
           ? { description: "General purpose", model: undefined }
           : { description: "My custom agent", model: undefined },
     });
-    const result = buildTypeListText(registry, "/home/.pi");
+    const result = buildTypeListText(registry, "/home/.zrow");
     expect(result).toContain("Custom agents:");
     expect(result).toContain("- my-agent: My custom agent");
   });
@@ -136,7 +136,7 @@ describe("buildTypeListText", () => {
           ? { description: "Fast explorer", model: undefined, enabled: false }
           : { description: "Implementation worker", model: undefined },
     });
-    const result = buildTypeListText(registry, "/home/.pi");
+    const result = buildTypeListText(registry, "/home/.zrow");
     expect(result).toContain("- worker: Implementation worker");
     expect(result).not.toContain("- explore:");
   });
@@ -150,7 +150,7 @@ describe("buildTypeListText", () => {
           ? { description: "disabled custom agent", model: undefined, enabled: false }
           : { description: "My custom agent", model: undefined },
     });
-    const result = buildTypeListText(registry, "/home/.pi");
+    const result = buildTypeListText(registry, "/home/.zrow");
     expect(result).toContain("- my-agent: My custom agent");
     expect(result).not.toContain("disabled-custom");
   });
@@ -160,7 +160,7 @@ describe("buildTypeListText", () => {
       defaults: ["worker"],
       resolve: () => ({ description: "General purpose", model: undefined }),
     });
-    const result = buildTypeListText(registry, "/home/.pi");
+    const result = buildTypeListText(registry, "/home/.zrow");
     expect(result).not.toContain("Custom agents:");
   });
 
@@ -169,7 +169,7 @@ describe("buildTypeListText", () => {
       users: ["my-agent"],
       resolve: () => ({ description: "My custom agent", model: undefined }),
     });
-    const result = buildTypeListText(registry, "/home/.pi");
+    const result = buildTypeListText(registry, "/home/.zrow");
     expect(result).not.toContain("Default agents:");
   });
 });

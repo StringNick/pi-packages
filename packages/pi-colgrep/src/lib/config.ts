@@ -3,13 +3,14 @@
  *
  * Config files live at:
  *  - Global:  <agentDir>/extensions/pi-colgrep/config.json
- *  - Project: <cwd>/.pi/extensions/pi-colgrep/config.json
+ *  - Project: <cwd>/.zrow/extensions/pi-colgrep/config.json
  *
  * Project config takes precedence over global. A missing file is silent; a
  * malformed file warns to stderr and falls back to defaults.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 export const EXTENSION_ID = "pi-colgrep";
 
@@ -23,7 +24,7 @@ export function getGlobalConfigPath(agentDir: string): string {
 }
 
 export function getProjectConfigPath(cwd: string): string {
-  return join(cwd, ".pi", "extensions", EXTENSION_ID, "config.json");
+  return join(cwd, CONFIG_DIR_NAME, "extensions", EXTENSION_ID, "config.json");
 }
 
 /** Drop fields that don't match the expected shape. Garbage becomes absent. */

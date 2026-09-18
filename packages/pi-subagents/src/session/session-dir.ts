@@ -14,8 +14,8 @@ import { basename, dirname, join } from "node:path";
  * Layout: `<parent-dir>/<parent-basename>/tasks/`
  *
  * Example:
- *   parent: `~/.pi/agent/sessions/--project--/2026-05-20T12-00-00Z_.jsonl`
- *   result: `~/.pi/agent/sessions/--project--/2026-05-20T12-00-00Z_/tasks`
+ *   parent: `~/.zrow/agent/sessions/--project--/2026-05-20T12-00-00Z_.jsonl`
+ *   result: `~/.zrow/agent/sessions/--project--/2026-05-20T12-00-00Z_/tasks`
  *
  * Falls back to a temp directory when the parent session is not persisted
  * (e.g. API/headless mode where the parent uses `SessionManager.inMemory()`).

@@ -2,10 +2,10 @@
  * Generic layered settings loader for `@gotgenes/pi-*` extensions.
  *
  * Extensions that store configuration in JSON files under a global agent
- * directory and a per-project `.pi/` folder share the same three-step idiom:
+ * directory and a per-project `.zrow/` folder share the same three-step idiom:
  *
  *   1. Read the global file (`<agentDir>/<filename>`).
- *   2. Read the project file (`<cwd>/.pi/<filename>`).
+ *   2. Read the project file (`<cwd>/.zrow/<filename>`).
  *   3. Merge them — project wins on conflicts — and return the result.
  *
  * Both layers are optional: a missing file is silent (`{}`), and a file that
@@ -30,7 +30,7 @@
  *
  * const config = loadLayeredSettings<MyConfig>({
  *   agentDir,     // e.g. from the Pi runtime env — the agent home directory
- *   cwd,          // project root — project file is at <cwd>/.pi/<filename>
+ *   cwd,          // project root — project file is at <cwd>/.zrow/<filename>
  *   filename: "my-extension.json",
  *   sanitize,
  *   warnLabel: "my-extension",
@@ -42,6 +42,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 /**
  * Parameters for one layered settings load: describes where the files live,
@@ -52,7 +53,7 @@ import { join } from "node:path";
 export interface LayeredSettingsSource<T> {
   /** Directory holding the global settings file (typically the Pi agent dir). */
   agentDir: string;
-  /** Project root; the project file lives at `<cwd>/.pi/<filename>`. */
+  /** Project root; the project file lives at `<cwd>/.zrow/<filename>`. */
   cwd: string;
   /** Hosts can exclude project settings without changing global/profile discovery. */
   includeProject?: boolean;
@@ -86,7 +87,7 @@ export interface LayeredSettingsSource<T> {
 export function loadLayeredSettings<T>(source: LayeredSettingsSource<T>): Partial<T> {
   const { agentDir, cwd, filename, sanitize, warnLabel } = source;
   const global = readLayer(join(agentDir, filename), sanitize, warnLabel);
-  const project = source.includeProject === false ? {} : readLayer(join(cwd, ".pi", filename), sanitize, warnLabel);
+  const project = source.includeProject === false ? {} : readLayer(join(cwd, CONFIG_DIR_NAME, filename), sanitize, warnLabel);
   return { ...global, ...project };
 }
 

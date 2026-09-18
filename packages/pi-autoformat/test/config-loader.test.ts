@@ -361,7 +361,7 @@ describe("loadAutoformatConfig", () => {
       ),
     );
 
-    mkdirSync(join(cwd, ".pi", "extensions", "pi-autoformat"), {
+    mkdirSync(join(cwd, ".zrow", "extensions", "pi-autoformat"), {
       recursive: true,
     });
     writeFileSync(
@@ -427,7 +427,7 @@ describe("loadAutoformatConfig", () => {
       }),
     );
 
-    mkdirSync(join(cwd, ".pi", "extensions", "pi-autoformat"), {
+    mkdirSync(join(cwd, ".zrow", "extensions", "pi-autoformat"), {
       recursive: true,
     });
     writeFileSync(
@@ -488,7 +488,7 @@ describe("loadAutoformatConfig", () => {
       }),
     );
 
-    mkdirSync(join(cwd, ".pi", "extensions", "pi-autoformat"), {
+    mkdirSync(join(cwd, ".zrow", "extensions", "pi-autoformat"), {
       recursive: true,
     });
     writeFileSync(
@@ -545,7 +545,7 @@ describe("loadAutoformatConfig", () => {
     });
     writeFileSync(getGlobalConfigPath(agentDir), "{not json\n");
 
-    mkdirSync(join(cwd, ".pi", "extensions", "pi-autoformat"), {
+    mkdirSync(join(cwd, ".zrow", "extensions", "pi-autoformat"), {
       recursive: true,
     });
     writeFileSync(

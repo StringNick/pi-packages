@@ -102,8 +102,8 @@ describe("discoverGlobalNodeModulesRoot", () => {
 // ── isPiInfrastructureRead ─────────────────────────────────────────────────
 
 const INFRA_DIRS = [
-  "/home/user/.pi/agent",
-  "/home/user/.pi/agent/git",
+  "/home/user/.zrow/agent",
+  "/home/user/.zrow/agent/git",
   "/opt/homebrew/lib/node_modules",
 ];
 const CWD = "/home/user/project";
@@ -115,7 +115,7 @@ describe("isPiInfrastructureRead", () => {
     expect(
       isPiInfrastructureRead(
         "read",
-        "/home/user/.pi/agent/extensions/pi-permission-system/config.json",
+        "/home/user/.zrow/agent/extensions/pi-permission-system/config.json",
         INFRA_DIRS,
         CWD,
         posixPathFlavor,
@@ -139,7 +139,7 @@ describe("isPiInfrastructureRead", () => {
     expect(
       isPiInfrastructureRead(
         "grep",
-        "/home/user/.pi/agent/git/some-package/README.md",
+        "/home/user/.zrow/agent/git/some-package/README.md",
         INFRA_DIRS,
         CWD,
         posixPathFlavor,
@@ -165,7 +165,7 @@ describe("isPiInfrastructureRead", () => {
     expect(
       isPiInfrastructureRead(
         "write",
-        "/home/user/.pi/agent/extensions/pi-permission-system/config.json",
+        "/home/user/.zrow/agent/extensions/pi-permission-system/config.json",
         INFRA_DIRS,
         CWD,
         posixPathFlavor,
@@ -212,11 +212,11 @@ describe("isPiInfrastructureRead", () => {
   });
 
   test("does not allow 'read' for a path only partially matching an infra dir prefix", () => {
-    // /home/user/.pi/agent-other should not match /home/user/.pi/agent
+    // /home/user/.zrow/agent-other should not match /home/user/.zrow/agent
     expect(
       isPiInfrastructureRead(
         "read",
-        "/home/user/.pi/agent-other/config.json",
+        "/home/user/.zrow/agent-other/config.json",
         INFRA_DIRS,
         CWD,
         posixPathFlavor,
@@ -224,13 +224,13 @@ describe("isPiInfrastructureRead", () => {
     ).toBe(false);
   });
 
-  // ── project-local Pi packages (.pi/npm, .pi/git) ─────────────────────────
+  // ── project-local Pi packages (.zrow/npm, .zrow/git) ─────────────────────────
 
-  test("allows 'read' for a path inside project-local .pi/npm/", () => {
+  test("allows 'read' for a path inside project-local .zrow/npm/", () => {
     expect(
       isPiInfrastructureRead(
         "read",
-        `${CWD}/.pi/npm/node_modules/some-skill/SKILL.md`,
+        `${CWD}/.zrow/npm/node_modules/some-skill/SKILL.md`,
         INFRA_DIRS,
         CWD,
         posixPathFlavor,
@@ -238,11 +238,11 @@ describe("isPiInfrastructureRead", () => {
     ).toBe(true);
   });
 
-  test("allows 'read' for a path inside project-local .pi/git/", () => {
+  test("allows 'read' for a path inside project-local .zrow/git/", () => {
     expect(
       isPiInfrastructureRead(
         "read",
-        `${CWD}/.pi/git/github.com/org/skill-repo/SKILL.md`,
+        `${CWD}/.zrow/git/github.com/org/skill-repo/SKILL.md`,
         INFRA_DIRS,
         CWD,
         posixPathFlavor,
@@ -250,11 +250,11 @@ describe("isPiInfrastructureRead", () => {
     ).toBe(true);
   });
 
-  test("blocks 'write' for a path inside project-local .pi/npm/", () => {
+  test("blocks 'write' for a path inside project-local .zrow/npm/", () => {
     expect(
       isPiInfrastructureRead(
         "write",
-        `${CWD}/.pi/npm/node_modules/some-skill/SKILL.md`,
+        `${CWD}/.zrow/npm/node_modules/some-skill/SKILL.md`,
         INFRA_DIRS,
         CWD,
         posixPathFlavor,
@@ -270,12 +270,12 @@ describe("isPiInfrastructureRead", () => {
     ).toBe(false);
   });
 
-  test("returns false when infrastructureDirs is empty but path IS project-local .pi/npm", () => {
+  test("returns false when infrastructureDirs is empty but path IS project-local .zrow/npm", () => {
     // Project-local paths are checked separately from the dirs array.
     expect(
       isPiInfrastructureRead(
         "read",
-        `${CWD}/.pi/npm/node_modules/x/SKILL.md`,
+        `${CWD}/.zrow/npm/node_modules/x/SKILL.md`,
         [],
         CWD,
         posixPathFlavor,
@@ -349,13 +349,13 @@ describe("isPiInfrastructureRead with glob patterns", () => {
 
   test("mixed array of plain dirs and glob patterns — both branches work", () => {
     const dirs = [
-      "/home/user/.pi/agent",
+      "/home/user/.zrow/agent",
       "/opt/homebrew/*/@earendil-works/pi-coding-agent/*",
     ];
     expect(
       isPiInfrastructureRead(
         "read",
-        "/home/user/.pi/agent/config.json",
+        "/home/user/.zrow/agent/config.json",
         dirs,
         CWD,
         posixPathFlavor,
@@ -377,8 +377,8 @@ describe("isPiInfrastructureRead with glob patterns", () => {
     expect(
       isPiInfrastructureRead(
         "read",
-        `${home}/.pi/agent/config.json`,
-        ["~/.pi/agent"],
+        `${home}/.zrow/agent/config.json`,
+        ["~/.zrow/agent"],
         CWD,
         posixPathFlavor,
       ),
@@ -405,8 +405,8 @@ describe("isPiInfrastructureRead on win32", () => {
     expect(
       isPiInfrastructureRead(
         "read",
-        "c:\\users\\foo\\.pi\\agent\\config.json",
-        ["C:\\Users\\Foo\\.pi\\agent"],
+        "c:\\users\\foo\\.zrow\\agent\\config.json",
+        ["C:\\Users\\Foo\\.zrow\\agent"],
         "C:\\proj",
         win32PathFlavor,
       ),
@@ -430,7 +430,7 @@ describe("isPiInfrastructureRead on win32", () => {
       isPiInfrastructureRead(
         "read",
         "c:\\windows\\system32\\drivers\\etc\\hosts",
-        ["C:\\Users\\Foo\\.pi\\agent"],
+        ["C:\\Users\\Foo\\.zrow\\agent"],
         "C:\\proj",
         win32PathFlavor,
       ),

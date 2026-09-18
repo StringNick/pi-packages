@@ -24,8 +24,8 @@ describe("createSettingsDirs", () => {
     expect(dirs.globalFile()).toBe(join(dirs.globalDir, "config.json"));
   });
 
-  it("resolves the project file as <projectDir>/.pi/<filename>", () => {
-    expect(dirs.projectFile()).toBe(join(dirs.projectDir, ".pi", "config.json"));
+  it("resolves the project file as <projectDir>/.zrow/<filename>", () => {
+    expect(dirs.projectFile()).toBe(join(dirs.projectDir, ".zrow", "config.json"));
   });
 
   it("writeGlobal lands JSON at the global file", () => {
@@ -33,8 +33,8 @@ describe("createSettingsDirs", () => {
     expect(JSON.parse(readFileSync(dirs.globalFile(), "utf-8"))).toEqual({ name: "global" });
   });
 
-  it("writeProject creates <projectDir>/.pi/ and lands JSON at the project file", () => {
-    expect(existsSync(join(dirs.projectDir, ".pi"))).toBe(false);
+  it("writeProject creates <projectDir>/.zrow/ and lands JSON at the project file", () => {
+    expect(existsSync(join(dirs.projectDir, ".zrow"))).toBe(false);
     dirs.writeProject({ name: "project" });
     expect(JSON.parse(readFileSync(dirs.projectFile(), "utf-8"))).toEqual({ name: "project" });
   });

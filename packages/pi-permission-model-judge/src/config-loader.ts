@@ -10,6 +10,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 import {
   MODEL_JUDGE_EXTENSION_ID,
@@ -42,11 +43,11 @@ export function getGlobalConfigPath(agentDir: string): string {
   );
 }
 
-/** Project scope: `<cwd>/.pi/extensions/<id>/config.json`. */
+/** Project scope: `<cwd>/.zrow/extensions/<id>/config.json`. */
 export function getProjectConfigPath(cwd: string): string {
   return join(
     cwd,
-    ".pi",
+    CONFIG_DIR_NAME,
     "extensions",
     MODEL_JUDGE_EXTENSION_ID,
     CONFIG_FILE_NAME,

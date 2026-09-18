@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { READ_ONLY_PATH_BEARING_TOOLS } from "#src/access-intent/path-surfaces";
 import { wildcardMatch } from "#src/policy/wildcard-matcher";
 import { expandHomePath } from "./expand-home";
@@ -16,7 +17,7 @@ function containsGlobChars(value: string): boolean {
  * 1. The tool is read-only (in READ_ONLY_PATH_BEARING_TOOLS).
  * 2. The normalized path is within one of the provided `infrastructureDirs`
  *    OR within the project-local Pi package directories
- *    (`<cwd>/.pi/npm/` or `<cwd>/.pi/git/`).
+ *    (`<cwd>/.zrow/npm/` or `<cwd>/.zrow/git/`).
  *
  * `infrastructureDirs` entries may be absolute paths or patterns containing
  * `~`/`$HOME` (expanded at call time) or glob characters (`*`, `?`).
@@ -46,8 +47,8 @@ export function isPiInfrastructureRead(
   }
 
   // Project-local Pi packages — checked fresh every call so CWD changes work.
-  const projectNpmDir = join(cwd, ".pi", "npm");
-  const projectGitDir = join(cwd, ".pi", "git");
+  const projectNpmDir = join(cwd, CONFIG_DIR_NAME, "npm");
+  const projectGitDir = join(cwd, CONFIG_DIR_NAME, "git");
   if (flavor.isWithin(normalizedPath, projectNpmDir)) {
     return true;
   }

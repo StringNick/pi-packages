@@ -23,12 +23,12 @@ describe("loadCustomAgents", () => {
   });
 
   function writeAgent(name: string, content: string) {
-    const dir = join(tmpDir, ".pi", "agents");
+    const dir = join(tmpDir, ".zrow", "agents");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `${name}.md`), content);
   }
 
-  it("returns empty map when .pi/agents/ does not exist", () => {
+  it("returns empty map when .zrow/agents/ does not exist", () => {
     const result = loadCustomAgents(tmpDir);
     expect(result.size).toBe(0);
   });
@@ -375,7 +375,7 @@ Second agent.`);
   });
 
   it("skips non-.md files", () => {
-    const dir = join(tmpDir, ".pi", "agents");
+    const dir = join(tmpDir, ".zrow", "agents");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "notes.txt"), "not an agent");
     writeFileSync(join(dir, "real.md"), `---
@@ -420,7 +420,7 @@ Custom explore agent.`);
       expect(result.has("Explore")).toBe(false);
       expect(result.get("explore")!.name).toBe("explore");
       expect(result.get("explore")!.description).toBe("Custom Explore");
-      expect(result.get("explore")!.sourcePath).toBe(join(tmpDir, ".pi", "agents", "Explore.md"));
+      expect(result.get("explore")!.sourcePath).toBe(join(tmpDir, ".zrow", "agents", "Explore.md"));
     });
 
     it("canonicalizes regardless of case", () => {
@@ -518,7 +518,7 @@ Agent prompt.`);
 
       const result = loadCustomAgents(tmpDir);
 
-      // Agent is found at $PI_CODING_AGENT_DIR/agents, not at $HOME/.pi/agent/agents
+      // Agent is found at $PI_CODING_AGENT_DIR/agents, not at $HOME/.zrow/agent/agents
       expect(result.has("via-env")).toBe(true);
       expect(result.get("via-env")!.description).toBe("Discovered via env var");
     } finally {

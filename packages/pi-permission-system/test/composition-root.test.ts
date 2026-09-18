@@ -114,12 +114,12 @@ function writeGlobalConfig(config: Record<string, unknown>): void {
   );
 }
 
-/** Write a project config file under `<cwd>/.pi/extensions/pi-permission-system`. */
+/** Write a project config file under `<cwd>/.zrow/extensions/pi-permission-system`. */
 function writeProjectConfig(
   cwd: string,
   config: Record<string, unknown>,
 ): void {
-  const dir = join(cwd, ".pi", "extensions", "pi-permission-system");
+  const dir = join(cwd, ".zrow", "extensions", "pi-permission-system");
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, "config.json"),
@@ -270,7 +270,7 @@ describe("event-handler registration completeness", () => {
     const pi = makeFakePi();
     piPermissionSystemExtension(pi as unknown as ExtensionAPI);
 
-    expect([...pi.handlers.keys()].sort()).toEqual(EXPECTED_HANDLERS);
+    expect([...zrow.handlers.keys()].sort()).toEqual(EXPECTED_HANDLERS);
   });
 });
 

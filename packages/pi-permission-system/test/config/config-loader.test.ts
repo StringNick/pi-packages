@@ -741,7 +741,7 @@ describe("loadAndMergeConfigs", () => {
   }
 
   function writeProject(content: Record<string, unknown>): void {
-    const dir = join(cwd, ".pi", "extensions", "pi-permission-system");
+    const dir = join(cwd, ".zrow", "extensions", "pi-permission-system");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "config.json"), JSON.stringify(content));
   }
@@ -755,7 +755,7 @@ describe("loadAndMergeConfigs", () => {
   }
 
   function writeLegacyProjectPolicy(content: Record<string, unknown>): void {
-    const dir = join(cwd, ".pi", "agent");
+    const dir = join(cwd, ".zrow", "agent");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "pi-permissions.jsonc"), JSON.stringify(content));
   }
@@ -808,8 +808,8 @@ describe("loadAndMergeConfigs", () => {
 
     const result = loadAndMergeConfigs(agentDir, cwd, extensionRoot);
     expect(result.issues).toHaveLength(1);
-    expect(result.issues[0]).toContain(".pi/agent/pi-permissions.jsonc");
-    expect(result.issues[0]).toContain(".pi/extensions/pi-permission-system");
+    expect(result.issues[0]).toContain(".zrow/agent/pi-permissions.jsonc");
+    expect(result.issues[0]).toContain(".zrow/extensions/pi-permission-system");
     // Legacy file has no flat-format permission key — no rules extracted
     expect(result.merged.permission).toBeUndefined();
   });

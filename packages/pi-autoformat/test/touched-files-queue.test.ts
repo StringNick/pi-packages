@@ -89,12 +89,12 @@ describe("TouchedFilesQueue", () => {
     const home = os.homedir();
 
     queue.recordToolResult("write", {
-      path: "~/.pi/agent/extensions/pi-permission-system/config.json",
+      path: "~/.zrow/agent/extensions/pi-permission-system/config.json",
     });
 
     const flushed = queue.flush();
     expect(flushed).toEqual([
-      `${home}/.pi/agent/extensions/pi-permission-system/config.json`,
+      `${home}/.zrow/agent/extensions/pi-permission-system/config.json`,
     ]);
     // Must NOT contain the cwd prefix
     expect(flushed[0]).not.toContain("/repo/");

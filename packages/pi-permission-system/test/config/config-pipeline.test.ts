@@ -96,7 +96,7 @@ describe("config pipeline seam", () => {
 
   it("project config still overrides a global deprecated cap in the merge", () => {
     writeGlobal({ toolInputPreviewMaxLength: 200 });
-    const projectDir = join(cwd, ".pi", "extensions", "pi-permission-system");
+    const projectDir = join(cwd, ".zrow", "extensions", "pi-permission-system");
     mkdirSync(projectDir, { recursive: true });
     writeFileSync(
       join(projectDir, "config.json"),

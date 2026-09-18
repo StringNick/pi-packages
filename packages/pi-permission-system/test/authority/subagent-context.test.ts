@@ -338,7 +338,7 @@ describe("isSubagentExecutionContext — env hint detection", () => {
 });
 
 describe("isSubagentExecutionContext — session dir detection", () => {
-  const subagentRoot = "/home/user/.pi/agent/sessions/subagents";
+  const subagentRoot = "/home/user/.zrow/agent/sessions/subagents";
 
   test("returns true when session dir is within subagent root", () => {
     const sessionDir = `${subagentRoot}/session-abc`;
@@ -362,7 +362,7 @@ describe("isSubagentExecutionContext — session dir detection", () => {
   });
 
   test("returns false when session dir is outside subagent root", () => {
-    const sessionDir = "/home/user/.pi/agent/sessions/main-session";
+    const sessionDir = "/home/user/.zrow/agent/sessions/main-session";
     expect(
       isSubagentExecutionContext(
         makeCtx(sessionDir),
@@ -385,7 +385,7 @@ describe("isSubagentExecutionContext — session dir detection", () => {
   });
 
   test("returns false when a `..` segment escapes the subagent root", () => {
-    // Normalizes to /home/user/.pi/agent/sessions/evil/session-abc — outside.
+    // Normalizes to /home/user/.zrow/agent/sessions/evil/session-abc — outside.
     const sessionDir = `${subagentRoot}/../evil/session-abc`;
     expect(
       isSubagentExecutionContext(
@@ -397,7 +397,7 @@ describe("isSubagentExecutionContext — session dir detection", () => {
   });
 
   test("returns true when a `..` segment resolves back inside the root", () => {
-    // Normalizes to /home/user/.pi/agent/sessions/subagents/session-abc — inside.
+    // Normalizes to /home/user/.zrow/agent/sessions/subagents/session-abc — inside.
     const sessionDir = `${subagentRoot}/nested/../session-abc`;
     expect(
       isSubagentExecutionContext(
@@ -433,7 +433,7 @@ describe("isSubagentExecutionContext — session dir detection", () => {
 });
 
 describe("isSubagentExecutionContext — session dir detection (win32 flavor)", () => {
-  const subagentRoot = "C:\\Users\\dev\\.pi\\agent\\sessions\\subagents";
+  const subagentRoot = "C:\\Users\\dev\\.zrow\\agent\\sessions\\subagents";
 
   test("returns true when session dir is within subagent root", () => {
     const sessionDir = `${subagentRoot}\\session-abc`;
@@ -480,7 +480,7 @@ describe("isSubagentExecutionContext — session dir detection (win32 flavor)", 
 
   test("returns false when session dir is on a different drive", () => {
     const sessionDir =
-      "D:\\Users\\dev\\.pi\\agent\\sessions\\subagents\\session-abc";
+      "D:\\Users\\dev\\.zrow\\agent\\sessions\\subagents\\session-abc";
     expect(
       isSubagentExecutionContext(
         makeCtx(sessionDir),
@@ -492,9 +492,9 @@ describe("isSubagentExecutionContext — session dir detection (win32 flavor)", 
 });
 
 describe("isSubagentExecutionContext — registry detection", () => {
-  const subagentRoot = "/home/user/.pi/agent/sessions/subagents";
+  const subagentRoot = "/home/user/.zrow/agent/sessions/subagents";
   const outsideDir =
-    "/home/user/projects/my-app/.pi/agent/sessions/parent/tasks";
+    "/home/user/projects/my-app/.zrow/agent/sessions/parent/tasks";
   const childSessionId = "child-session-abc";
 
   test("returns true when session id is registered (no env vars, dir outside filesystem root)", () => {

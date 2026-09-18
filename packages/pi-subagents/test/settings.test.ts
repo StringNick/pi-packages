@@ -13,9 +13,9 @@ import { createSettingsDirs, type SettingsDirs } from "#test/helpers/tmp-setting
 
 /**
  * Tests for persistent settings. Uses two tmp directories:
- * - `globalDir`: passed directly as agentDir. Simulates `~/.pi/agent/` — the global scope.
+ * - `globalDir`: passed directly as agentDir. Simulates `~/.zrow/agent/` — the global scope.
  * - `projectDir`: passed explicitly as cwd to load/save.
- *   Simulates the user's project root. Settings live at `<projectDir>/.pi/subagents.json`.
+ *   Simulates the user's project root. Settings live at `<projectDir>/.zrow/subagents.json`.
  */
 describe("settings persistence", () => {
   let dirs: SettingsDirs;
@@ -41,7 +41,7 @@ describe("settings persistence", () => {
 
   it("returns {} when both files are malformed JSON", () => {
     writeFileSync(globalFile(), "not json {{");
-    mkdirSync(join(projectDir, ".pi"), { recursive: true });
+    mkdirSync(join(projectDir, ".zrow"), { recursive: true });
     writeFileSync(projectFile(), "also not json");
     expect(loadSettings(globalDir, projectDir)).toEqual({});
   });
@@ -86,8 +86,8 @@ describe("settings persistence", () => {
     expect(JSON.parse(readFileSync(globalFile(), "utf-8"))).toEqual({ maxConcurrent: 16 });
   });
 
-  it("saveSettings creates <cwd>/.pi/ when missing", () => {
-    expect(existsSync(join(projectDir, ".pi"))).toBe(false);
+  it("saveSettings creates <cwd>/.zrow/ when missing", () => {
+    expect(existsSync(join(projectDir, ".zrow"))).toBe(false);
     saveSettings({ maxConcurrent: 4 }, projectDir);
     expect(existsSync(projectFile())).toBe(true);
   });
@@ -149,7 +149,7 @@ describe("settings persistence", () => {
 
 
     it("returns {} when the JSON root is not an object (array, string, null)", () => {
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
       writeFileSync(projectFile(), '["not", "an", "object"]');
       expect(loadSettings(globalDir, projectDir)).toEqual({});
       writeFileSync(projectFile(), '"just a string"');
@@ -298,7 +298,7 @@ describe("settings persistence", () => {
     });
 
     it("warns to console.warn when an existing file is malformed", () => {
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
       writeFileSync(projectFile(), "not valid json {{{");
       const warnings = captureWarn(() => {
         expect(loadSettings(globalDir, projectDir)).toEqual({});
@@ -374,7 +374,7 @@ describe("SettingsManager", () => {
 
     beforeEach(() => {
       projectDir = mkdtempSync(join(tmpdir(), "pi-sm-inherit-"));
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
     });
 
     afterEach(() => {
@@ -384,7 +384,7 @@ describe("SettingsManager", () => {
     /** A manager loaded from a project file declaring the given rules. */
     function managerWith(rules: Record<string, string>): SettingsManager {
       writeFileSync(
-        join(projectDir, ".pi", "subagents.json"),
+        join(projectDir, ".zrow", "subagents.json"),
         JSON.stringify({ promptInheritance: rules }),
       );
       const sm = new SettingsManager({ emit: vi.fn(), cwd: projectDir, agentDir: "/nonexistent" });
@@ -412,7 +412,7 @@ describe("SettingsManager", () => {
 
     it("clears rules that a later load no longer declares", () => {
       const sm = managerWith({ "claude-bridge": "portable" });
-      writeFileSync(join(projectDir, ".pi", "subagents.json"), JSON.stringify({ graceTurns: 7 }));
+      writeFileSync(join(projectDir, ".zrow", "subagents.json"), JSON.stringify({ graceTurns: 7 }));
       sm.load();
       expect(sm.promptInheritanceFor("claude-bridge")).toBe("full");
     });
@@ -502,8 +502,8 @@ describe("SettingsManager", () => {
     });
 
     it("applies merged settings from disk to in-memory values", () => {
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
-      writeFileSync(join(projectDir, ".pi", "subagents.json"), JSON.stringify({ graceTurns: 7, maxConcurrent: 8 }));
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
+      writeFileSync(join(projectDir, ".zrow", "subagents.json"), JSON.stringify({ graceTurns: 7, maxConcurrent: 8 }));
       const emit = vi.fn();
       const sm = new SettingsManager({ emit, cwd: projectDir, agentDir: globalDir });
       sm.load();
@@ -513,16 +513,16 @@ describe("SettingsManager", () => {
     });
 
     it("applies defaultMaxTurns from disk (0 → unlimited)", () => {
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
-      writeFileSync(join(projectDir, ".pi", "subagents.json"), JSON.stringify({ defaultMaxTurns: 0 }));
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
+      writeFileSync(join(projectDir, ".zrow", "subagents.json"), JSON.stringify({ defaultMaxTurns: 0 }));
       const sm = new SettingsManager({ emit: vi.fn(), cwd: projectDir, agentDir: globalDir });
       sm.load();
       expect(sm.defaultMaxTurns).toBeUndefined();
     });
 
     it("applies defaultMaxTurns: 50 from disk", () => {
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
-      writeFileSync(join(projectDir, ".pi", "subagents.json"), JSON.stringify({ defaultMaxTurns: 50 }));
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
+      writeFileSync(join(projectDir, ".zrow", "subagents.json"), JSON.stringify({ defaultMaxTurns: 50 }));
       const sm = new SettingsManager({ emit: vi.fn(), cwd: projectDir, agentDir: globalDir });
       sm.load();
       expect(sm.defaultMaxTurns).toBe(50);
@@ -530,24 +530,24 @@ describe("SettingsManager", () => {
 
 
     it("applies abortAllOnInterrupt: false from disk", () => {
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
-      writeFileSync(join(projectDir, ".pi", "subagents.json"), JSON.stringify({ abortAllOnInterrupt: false }));
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
+      writeFileSync(join(projectDir, ".zrow", "subagents.json"), JSON.stringify({ abortAllOnInterrupt: false }));
       const sm = new SettingsManager({ emit: vi.fn(), cwd: projectDir, agentDir: globalDir });
       sm.load();
       expect(sm.abortAllOnInterrupt).toBe(false);
     });
 
     it("leaves abortAllOnInterrupt at its default when the file omits it", () => {
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
-      writeFileSync(join(projectDir, ".pi", "subagents.json"), JSON.stringify({ graceTurns: 7 }));
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
+      writeFileSync(join(projectDir, ".zrow", "subagents.json"), JSON.stringify({ graceTurns: 7 }));
       const sm = new SettingsManager({ emit: vi.fn(), cwd: projectDir, agentDir: globalDir });
       sm.load();
       expect(sm.abortAllOnInterrupt).toBe(true);
     });
 
     it("emits subagents:settings_loaded with merged settings", () => {
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
-      writeFileSync(join(projectDir, ".pi", "subagents.json"), JSON.stringify({ graceTurns: 7 }));
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
+      writeFileSync(join(projectDir, ".zrow", "subagents.json"), JSON.stringify({ graceTurns: 7 }));
       const emit = vi.fn();
       const sm = new SettingsManager({ emit, cwd: projectDir, agentDir: globalDir });
       sm.load();
@@ -556,8 +556,8 @@ describe("SettingsManager", () => {
     });
 
     it("returns the loaded settings object", () => {
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
-      writeFileSync(join(projectDir, ".pi", "subagents.json"), JSON.stringify({ maxConcurrent: 6 }));
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
+      writeFileSync(join(projectDir, ".zrow", "subagents.json"), JSON.stringify({ maxConcurrent: 6 }));
       const sm = new SettingsManager({ emit: vi.fn(), cwd: projectDir, agentDir: globalDir });
       const result = sm.load();
       expect(result).toEqual({ maxConcurrent: 6 });
@@ -571,8 +571,8 @@ describe("SettingsManager", () => {
     });
 
     it("loads excluded extension package sources, and clears them when removed", () => {
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
-      const settingsPath = join(projectDir, ".pi", "subagents.json");
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
+      const settingsPath = join(projectDir, ".zrow", "subagents.json");
       writeFileSync(
         settingsPath,
         JSON.stringify({ excludedExtensionPackages: ["npm:@cortexkit/pi-magic-context"] }),
@@ -639,8 +639,8 @@ describe("SettingsManager", () => {
     it("preserves a hand-edited excludedExtensionPackages across an unrelated edit", () => {
       // saveSettings rewrites the whole project file, so a key missing from
       // snapshot() is destroyed the next time any setting changes.
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
-      const settingsPath = join(projectDir, ".pi", "subagents.json");
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
+      const settingsPath = join(projectDir, ".zrow", "subagents.json");
       writeFileSync(
         settingsPath,
         JSON.stringify({ excludedExtensionPackages: ["npm:@cortexkit/pi-magic-context"] }),
@@ -665,8 +665,8 @@ describe("SettingsManager", () => {
       // Same rationale as excludedExtensionPackages: the key has no
       // /subagents:settings affordance, so a snapshot that omitted it would
       // destroy a hand-edited value on the next unrelated setting change.
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
-      const settingsPath = join(projectDir, ".pi", "subagents.json");
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
+      const settingsPath = join(projectDir, ".zrow", "subagents.json");
       writeFileSync(
         settingsPath,
         JSON.stringify({ promptInheritance: { "claude-bridge": "portable" } }),
@@ -693,7 +693,7 @@ describe("SettingsManager", () => {
       sm.maxConcurrent = 5;
       const toast = sm.saveAndNotify("Max concurrency set to 5");
       expect(toast).toEqual({ message: "Max concurrency set to 5", level: "info" });
-      const written = JSON.parse(readFileSync(join(projectDir, ".pi", "subagents.json"), "utf-8"));
+      const written = JSON.parse(readFileSync(join(projectDir, ".zrow", "subagents.json"), "utf-8"));
       expect(written).toEqual({ maxConcurrent: 5, defaultMaxTurns: 0, graceTurns: 5, abortAllOnInterrupt: true, midRunUpdates: true });
     });
 
@@ -758,7 +758,7 @@ describe("SettingsManager", () => {
       expect(sm.maxConcurrent).toBe(8);
       expect(onChanged).toHaveBeenCalledOnce();
       expect(toast).toEqual({ message: "Max concurrency set to 8", level: "info" });
-      const written = JSON.parse(readFileSync(join(projectDir, ".pi", "subagents.json"), "utf-8"));
+      const written = JSON.parse(readFileSync(join(projectDir, ".zrow", "subagents.json"), "utf-8"));
       expect(written.maxConcurrent).toBe(8);
     });
 
@@ -867,7 +867,7 @@ describe("SettingsManager", () => {
         message: "Mid-run updates from background subagents: off",
         level: "info",
       });
-      const written = JSON.parse(readFileSync(join(projectDir, ".pi", "subagents.json"), "utf-8"));
+      const written = JSON.parse(readFileSync(join(projectDir, ".zrow", "subagents.json"), "utf-8"));
       expect(written.midRunUpdates).toBe(false);
     });
 
@@ -905,7 +905,7 @@ describe("SettingsManager", () => {
       const toast = sm.toggleAbortAllOnInterrupt();
       expect(sm.abortAllOnInterrupt).toBe(false);
       expect(toast).toEqual({ message: "Abort all subagents on ESC: off", level: "info" });
-      const written = JSON.parse(readFileSync(join(projectDir, ".pi", "subagents.json"), "utf-8"));
+      const written = JSON.parse(readFileSync(join(projectDir, ".zrow", "subagents.json"), "utf-8"));
       expect(written.abortAllOnInterrupt).toBe(false);
     });
 

@@ -202,9 +202,9 @@ describe("composition root: hosted cwd and trust", () => {
       return { ...parent, release, service: getSubagentsService(id)! };
     };
     for (const name of ["A", "B"]) {
-      mkdirSync(join(root, name, ".pi", "agents"), { recursive: true });
-      writeFileSync(join(root, name, ".pi", "agents", "custom.md"), `---\ndescription: PROJECT_${name}\n---\nProject ${name}`);
-      writeFileSync(join(root, name, ".pi", "subagents.json"), JSON.stringify({ maxConcurrent: name === "A" ? 2 : 3, allowProjectAgents: true }));
+      mkdirSync(join(root, name, ".zrow", "agents"), { recursive: true });
+      writeFileSync(join(root, name, ".zrow", "agents", "custom.md"), `---\ndescription: PROJECT_${name}\n---\nProject ${name}`);
+      writeFileSync(join(root, name, ".zrow", "subagents.json"), JSON.stringify({ maxConcurrent: name === "A" ? 2 : 3, allowProjectAgents: true }));
     }
     const a = await start("host-A", join(root, "A"), true);
     const b = await start("host-B", join(root, "B"), true);
@@ -501,9 +501,9 @@ describe("composition root: prompt-inheritance wiring", () => {
 
     beforeEach(() => {
       projectDir = mkdtempSync(join(tmpdir(), "pi-root-inherit-"));
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
       writeFileSync(
-        join(projectDir, ".pi", "subagents.json"),
+        join(projectDir, ".zrow", "subagents.json"),
         JSON.stringify({ promptInheritance: { "claude-bridge": "portable" } }),
       );
       // The root reads settings from process.cwd(), so point it at the fixture.

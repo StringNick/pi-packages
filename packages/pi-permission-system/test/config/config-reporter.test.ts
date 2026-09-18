@@ -16,30 +16,30 @@ import { PermissionManager } from "#src/policy/permission-manager";
 test("buildResolvedConfigLogEntry includes policy paths and legacy detection flags", () => {
   const policyPaths: ResolvedPolicyPaths = {
     globalConfigPath:
-      "/home/user/.pi/agent/extensions/pi-permission-system/config.json",
+      "/home/user/.zrow/agent/extensions/pi-permission-system/config.json",
     globalConfigExists: true,
     projectConfigPath:
-      "/projects/my-app/.pi/extensions/pi-permission-system/config.json",
+      "/projects/my-app/.zrow/extensions/pi-permission-system/config.json",
     projectConfigExists: false,
-    agentsDir: "/home/user/.pi/agent/agents",
+    agentsDir: "/home/user/.zrow/agent/agents",
     agentsDirExists: true,
-    projectAgentsDir: "/projects/my-app/.pi/agent/agents",
+    projectAgentsDir: "/projects/my-app/.zrow/agent/agents",
     projectAgentsDirExists: false,
   };
 
   const result = buildResolvedConfigLogEntry({ policyPaths });
 
   expect(result.globalConfigPath).toBe(
-    "/home/user/.pi/agent/extensions/pi-permission-system/config.json",
+    "/home/user/.zrow/agent/extensions/pi-permission-system/config.json",
   );
   expect(result.globalConfigExists).toBe(true);
   expect(result.projectConfigPath).toBe(
-    "/projects/my-app/.pi/extensions/pi-permission-system/config.json",
+    "/projects/my-app/.zrow/extensions/pi-permission-system/config.json",
   );
   expect(result.projectConfigExists).toBe(false);
-  expect(result.agentsDir).toBe("/home/user/.pi/agent/agents");
+  expect(result.agentsDir).toBe("/home/user/.zrow/agent/agents");
   expect(result.agentsDirExists).toBe(true);
-  expect(result.projectAgentsDir).toBe("/projects/my-app/.pi/agent/agents");
+  expect(result.projectAgentsDir).toBe("/projects/my-app/.zrow/agent/agents");
   expect(result.projectAgentsDirExists).toBe(false);
   expect(result.legacyGlobalPolicyDetected).toBe(false);
   expect(result.legacyProjectPolicyDetected).toBe(false);
@@ -49,11 +49,11 @@ test("buildResolvedConfigLogEntry includes policy paths and legacy detection fla
 test("buildResolvedConfigLogEntry handles null project paths", () => {
   const policyPaths: ResolvedPolicyPaths = {
     globalConfigPath:
-      "/home/user/.pi/agent/extensions/pi-permission-system/config.json",
+      "/home/user/.zrow/agent/extensions/pi-permission-system/config.json",
     globalConfigExists: false,
     projectConfigPath: null,
     projectConfigExists: false,
-    agentsDir: "/home/user/.pi/agent/agents",
+    agentsDir: "/home/user/.zrow/agent/agents",
     agentsDirExists: false,
     projectAgentsDir: null,
     projectAgentsDirExists: false,
@@ -70,11 +70,11 @@ test("buildResolvedConfigLogEntry handles null project paths", () => {
 test("buildResolvedConfigLogEntry surfaces legacy detection flags", () => {
   const policyPaths: ResolvedPolicyPaths = {
     globalConfigPath:
-      "/home/user/.pi/agent/extensions/pi-permission-system/config.json",
+      "/home/user/.zrow/agent/extensions/pi-permission-system/config.json",
     globalConfigExists: true,
     projectConfigPath: null,
     projectConfigExists: false,
-    agentsDir: "/home/user/.pi/agent/agents",
+    agentsDir: "/home/user/.zrow/agent/agents",
     agentsDirExists: false,
     projectAgentsDir: null,
     projectAgentsDirExists: false,

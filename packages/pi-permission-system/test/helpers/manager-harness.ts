@@ -252,7 +252,7 @@ export function createAgentDirHarness(opts: {
   );
 
   const projectConfigPath = getProjectConfigPath(cwd);
-  mkdirSync(join(cwd, ".pi", "extensions", "pi-permission-system"), {
+  mkdirSync(join(cwd, ".zrow", "extensions", "pi-permission-system"), {
     recursive: true,
   });
   if (opts.projectPermission) {

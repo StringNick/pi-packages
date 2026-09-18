@@ -97,18 +97,18 @@ describe("deriveSessionsRoot", () => {
   it("derives the root from the current session file when the encoded cwd segment is present", async () => {
     const { deriveSessionsRoot } = await import("#src/session-file");
     const sessionFile =
-      "/home/user/.pi/agent/sessions/--Users-chris-project--/2026-05-20T12-00-00Z_.jsonl";
+      "/home/user/.zrow/agent/sessions/--Users-chris-project--/2026-05-20T12-00-00Z_.jsonl";
     expect(deriveSessionsRoot(sessionFile, "/Users/chris/project")).toBe(
-      "/home/user/.pi/agent/sessions",
+      "/home/user/.zrow/agent/sessions",
     );
   });
 
   it("derives the root for a subagent session file (nested tasks/ path)", async () => {
     const { deriveSessionsRoot } = await import("#src/session-file");
     const sessionFile =
-      "/home/user/.pi/agent/sessions/--Users-chris-project--/2026-05-20T12-00-00Z_/tasks/2026-05-20T12-01-00Z_.jsonl";
+      "/home/user/.zrow/agent/sessions/--Users-chris-project--/2026-05-20T12-00-00Z_/tasks/2026-05-20T12-01-00Z_.jsonl";
     expect(deriveSessionsRoot(sessionFile, "/Users/chris/project")).toBe(
-      "/home/user/.pi/agent/sessions",
+      "/home/user/.zrow/agent/sessions",
     );
   });
 
@@ -117,7 +117,7 @@ describe("deriveSessionsRoot", () => {
     const { homedir } = await import("node:os");
     const { join } = await import("node:path");
     expect(deriveSessionsRoot(undefined, "/Users/chris/project")).toBe(
-      join(homedir(), ".pi", "agent", "sessions"),
+      join(homedir(), ".zrow", "agent", "sessions"),
     );
   });
 
@@ -126,9 +126,9 @@ describe("deriveSessionsRoot", () => {
     const { homedir } = await import("node:os");
     const { join } = await import("node:path");
     const sessionFile =
-      "/home/user/.pi/agent/sessions/--other-project--/s.jsonl";
+      "/home/user/.zrow/agent/sessions/--other-project--/s.jsonl";
     expect(deriveSessionsRoot(sessionFile, "/Users/chris/project")).toBe(
-      join(homedir(), ".pi", "agent", "sessions"),
+      join(homedir(), ".zrow", "agent", "sessions"),
     );
   });
 });

@@ -95,7 +95,7 @@ describe("findPreservedWorktrees", () => {
 
   it("excludes a rescue-named worktree outside the temp root", () => {
     // node_modules is gitignored, so a leftover never pollutes the working tree.
-    const outsideRoot = join(process.cwd(), "node_modules", ".pi-wt-outside");
+    const outsideRoot = join(process.cwd(), "node_modules", ".zrow-wt-outside");
     mkdirSync(outsideRoot, { recursive: true });
     const outside = join(outsideRoot, "pi-agent-outside-1f2e9c04");
     scratchPaths.push(outside);

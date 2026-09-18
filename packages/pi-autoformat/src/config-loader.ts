@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 
 import { BUILTIN_FORMATTERS } from "./builtin-formatters";
 import type { CustomMutationToolSpec } from "./custom-mutation-tools";
@@ -59,7 +59,7 @@ export type LoadConfigResult = {
 };
 
 function defaultAgentDir(): string {
-  return join(homedir(), ".pi", "agent");
+  return getAgentDir();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1221,7 +1221,7 @@ export function getGlobalConfigPath(agentDir = defaultAgentDir()): string {
 export function getProjectConfigPath(cwd: string): string {
   return join(
     cwd,
-    ".pi",
+    CONFIG_DIR_NAME,
     "extensions",
     AUTOFORMAT_EXTENSION_ID,
     AUTOFORMAT_CONFIG_FILE_NAME,

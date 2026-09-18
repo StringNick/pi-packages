@@ -1023,7 +1023,7 @@ describe("createAutoformatExtension", () => {
           {
             path: "commandTimeoutMs",
             message: "Expected a positive integer.",
-            sourcePath: "/repo/.pi/extensions/pi-autoformat/config.json",
+            sourcePath: "/repo/.zrow/extensions/pi-autoformat/config.json",
           },
         ],
       }),
@@ -1036,7 +1036,7 @@ describe("createAutoformatExtension", () => {
     await pi.emit("session_start", {}, ctx);
 
     expect(warn).toHaveBeenCalledWith(
-      "[pi-autoformat] Configuration issues detected:\n/repo/.pi/extensions/pi-autoformat/config.json commandTimeoutMs: Expected a positive integer.",
+      "[pi-autoformat] Configuration issues detected:\n/repo/.zrow/extensions/pi-autoformat/config.json commandTimeoutMs: Expected a positive integer.",
     );
 
     warn.mockRestore();
@@ -1181,7 +1181,7 @@ describe("createAutoformatExtension", () => {
           {
             path: "commandTimeoutMs",
             message: "Expected a positive integer.",
-            sourcePath: "/repo/.pi/extensions/pi-autoformat/config.json",
+            sourcePath: "/repo/.zrow/extensions/pi-autoformat/config.json",
           },
         ],
       }),
@@ -1199,7 +1199,7 @@ describe("createAutoformatExtension", () => {
         {
           path: "commandTimeoutMs",
           message: "Expected a positive integer.",
-          sourcePath: "/repo/.pi/extensions/pi-autoformat/config.json",
+          sourcePath: "/repo/.zrow/extensions/pi-autoformat/config.json",
         },
       ],
       { ctx },

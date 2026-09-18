@@ -8,12 +8,12 @@ it("rebinds admitted native settings without retaining project values or allowin
   const root = mkdtempSync(join(tmpdir(), "hosted-settings-"));
   try {
     const agentDir = join(root, "profile"); const a = join(root, "a"); const b = join(root, "b");
-    mkdirSync(agentDir); mkdirSync(join(a, ".pi"), { recursive: true }); mkdirSync(join(b, ".pi"), { recursive: true });
+    mkdirSync(agentDir); mkdirSync(join(a, ".zrow"), { recursive: true }); mkdirSync(join(b, ".zrow"), { recursive: true });
     writeFileSync(join(agentDir, "subagents.json"), JSON.stringify({ maxConcurrent: 7 }));
-    const path = join(a, ".pi", "subagents.json");
+    const path = join(a, ".zrow", "subagents.json");
     const original = JSON.stringify({ maxConcurrent: 2, defaultMaxTurns: 8, excludedExtensionPackages: ["project-package"], allowProjectAgents: true });
     writeFileSync(path, original);
-    writeFileSync(join(b, ".pi", "subagents.json"), JSON.stringify({ graceTurns: 12 }));
+    writeFileSync(join(b, ".zrow", "subagents.json"), JSON.stringify({ graceTurns: 12 }));
     const settings = new SettingsManager({ agentDir, cwd: "unused-ambient", emit: vi.fn() });
     const owner = new AbortController(); const assertActive = () => owner.signal.throwIfAborted();
     settings.bindContext(a, agentDir, true, assertActive);

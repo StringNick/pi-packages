@@ -988,11 +988,11 @@ describe("extractExternalPathsFromBashCommand", () => {
   describe("leading cd prefix", () => {
     test("regression: cd to subdir with relative path traversing back into cwd is not flagged", async () => {
       // Real-world command that triggered a false-positive external-directory
-      // prompt. The relative path .pi/../../../.pi/skills/... resolves inside
+      // prompt. The relative path .zrow/../../../.zrow/skills/... resolves inside
       // cwd when resolved from the cd target, but outside cwd when resolved
       // from cwd itself.
       const result = await extractExternalPathsFromBashCommand(
-        'cd /projects/my-app/packages/sub && grep -n "pattern" .pi/../../../.pi/skills/pkg/SKILL.md',
+        'cd /projects/my-app/packages/sub && grep -n "pattern" .zrow/../../../.zrow/skills/pkg/SKILL.md',
         cwd,
       );
       expect(result).toHaveLength(0);
@@ -1028,7 +1028,7 @@ describe("extractExternalPathsFromBashCommand", () => {
 
     test("cd with relative target: resolves inside cwd", async () => {
       const result = await extractExternalPathsFromBashCommand(
-        'cd packages/sub && grep -n "x" .pi/../../../.pi/skills/pkg/SKILL.md',
+        'cd packages/sub && grep -n "x" .zrow/../../../.zrow/skills/pkg/SKILL.md',
         cwd,
       );
       expect(result).toHaveLength(0);
@@ -1037,7 +1037,7 @@ describe("extractExternalPathsFromBashCommand", () => {
     test("no cd prefix: ../ path that escapes cwd is flagged", async () => {
       // Without the cd prefix, the path resolves against cwd and escapes.
       const result = await extractExternalPathsFromBashCommand(
-        'grep -n "pattern" .pi/../../../.pi/skills/pkg/SKILL.md',
+        'grep -n "pattern" .zrow/../../../.zrow/skills/pkg/SKILL.md',
         cwd,
       );
       expect(result.length).toBeGreaterThan(0);

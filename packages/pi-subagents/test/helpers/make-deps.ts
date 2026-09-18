@@ -65,7 +65,7 @@ export function createToolDeps(overrides: Partial<AgentToolFixture> = {}): Agent
 		runtime,
 		settings: { defaultMaxTurns: undefined as number | undefined, maxConcurrent: 4 },
 		registry: defaultRegistry,
-		agentDir: "/home/user/.pi",
+		agentDir: "/home/user/.zrow",
 		...overrides,
 	};
 }

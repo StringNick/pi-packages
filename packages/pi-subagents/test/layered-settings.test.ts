@@ -98,8 +98,8 @@ describe("loadLayeredSettings", () => {
       expect(load()).toEqual({ count: 7 });
     });
 
-    it("resolves project file as <cwd>/.pi/<filename>", () => {
-      // Only the project file exists — proves path is <cwd>/.pi/test-settings.json
+    it("resolves project file as <cwd>/.zrow/<filename>", () => {
+      // Only the project file exists — proves path is <cwd>/.zrow/test-settings.json
       writeProject({ count: 42 });
       expect(load()).toEqual({ count: 42 });
     });
@@ -111,7 +111,7 @@ describe("loadLayeredSettings", () => {
       {
         layer: "project",
         writeMalformed: () => {
-          mkdirSync(join(cwd, ".pi"), { recursive: true });
+          mkdirSync(join(cwd, ".zrow"), { recursive: true });
           writeFileSync(projectFile(), "also invalid {{{");
         },
       },
@@ -127,7 +127,7 @@ describe("loadLayeredSettings", () => {
 
     it("warns once per bad file (two malformed files → two warnings)", () => {
       writeFileSync(globalFile(), "bad1");
-      mkdirSync(join(cwd, ".pi"), { recursive: true });
+      mkdirSync(join(cwd, ".zrow"), { recursive: true });
       writeFileSync(projectFile(), "bad2");
       const warnings = captureWarn(() => {
         expect(load()).toEqual({});
@@ -137,7 +137,7 @@ describe("loadLayeredSettings", () => {
 
     it("uses global when project file is malformed (global is valid)", () => {
       writeGlobal({ name: "global" });
-      mkdirSync(join(cwd, ".pi"), { recursive: true });
+      mkdirSync(join(cwd, ".zrow"), { recursive: true });
       writeFileSync(projectFile(), "invalid");
       captureWarn(() => {
         expect(load()).toEqual({ name: "global" });

@@ -355,8 +355,8 @@ describe("PathNormalizer", () => {
       );
     });
 
-    test("allows a read targeting the project-local .pi/npm dir (from baked cwd)", () => {
-      const ap = normalizer.forPath("/projects/my-app/.pi/npm/dep/index.js");
+    test("allows a read targeting the project-local .zrow/npm dir (from baked cwd)", () => {
+      const ap = normalizer.forPath("/projects/my-app/.zrow/npm/dep/index.js");
       expect(normalizer.isInfrastructureRead("read", ap, [])).toBe(true);
     });
   });

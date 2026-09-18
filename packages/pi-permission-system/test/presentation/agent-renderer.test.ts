@@ -259,7 +259,7 @@ describe("renderPolicyDenial", () => {
           [
             {
               label: "read path",
-              text: ".pi/skills/deploy/SKILL.md",
+              text: ".zrow/skills/deploy/SKILL.md",
               detail: null,
             },
           ],
@@ -267,7 +267,7 @@ describe("renderPolicyDenial", () => {
         null,
       ),
     ).toBe(
-      "[pi-permission-system] Denied by policy: 'skill' for skill 'deploy' (rule 'deploy'), reached via '.pi/skills/deploy/SKILL.md'.",
+      "[pi-permission-system] Denied by policy: 'skill' for skill 'deploy' (rule 'deploy'), reached via '.zrow/skills/deploy/SKILL.md'.",
     );
   });
 

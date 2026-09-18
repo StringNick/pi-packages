@@ -82,7 +82,7 @@ describe("list_session_files tool", () => {
     const { join } = await import("node:path");
     const dir = join(
       homedir(),
-      ".pi",
+      ".zrow",
       "agent",
       "sessions",
       "--Users-chris-development-pi-pi-packages-worktrees-issue-546--",
@@ -119,7 +119,7 @@ describe("list_session_files tool", () => {
     mockStatSync.mockReturnValue({ mtimeMs: 500 });
 
     const ctx = makeCtx(
-      "/custom/root/.pi/agent/sessions/--Users-chris-current--/2026-01-01T00-00-00Z_.jsonl",
+      "/custom/root/.zrow/agent/sessions/--Users-chris-current--/2026-01-01T00-00-00Z_.jsonl",
     );
     // vi.spyOn process.cwd to match the current-session encoding
     const cwdSpy = vi
@@ -135,7 +135,7 @@ describe("list_session_files tool", () => {
     );
     const text = (result as { content: { text: string }[] }).content[0].text;
     expect(text).toContain(
-      "/custom/root/.pi/agent/sessions/--Users-chris-peer--",
+      "/custom/root/.zrow/agent/sessions/--Users-chris-peer--",
     );
     cwdSpy.mockRestore();
   });
@@ -163,7 +163,7 @@ describe("list_session_files tool", () => {
       expect(result.details.kind).toBe("listing");
       expect(result.details.count).toBe(2);
       expect(result.details.directory).toBe(
-        join(homedir(), ".pi", "agent", "sessions", "--Users-chris-peer--"),
+        join(homedir(), ".zrow", "agent", "sessions", "--Users-chris-peer--"),
       );
     });
 

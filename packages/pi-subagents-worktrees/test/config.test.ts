@@ -26,8 +26,8 @@ describe("loadWorktreesConfig", () => {
   }
 
   function writeProject(content: string): void {
-    mkdirSync(join(cwd, ".pi"), { recursive: true });
-    writeFileSync(join(cwd, ".pi", FILENAME), content);
+    mkdirSync(join(cwd, ".zrow"), { recursive: true });
+    writeFileSync(join(cwd, ".zrow", FILENAME), content);
   }
 
   it("returns an empty list when no config files exist", () => {

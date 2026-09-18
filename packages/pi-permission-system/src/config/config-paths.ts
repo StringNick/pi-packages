@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 const EXTENSION_ID = "pi-permission-system";
 
@@ -18,20 +19,20 @@ export function getGlobalLogsDir(agentDir: string): string {
 }
 
 export function getProjectConfigPath(cwd: string): string {
-  return join(cwd, ".pi", "extensions", EXTENSION_ID, "config.json");
+  return join(cwd, CONFIG_DIR_NAME, "extensions", EXTENSION_ID, "config.json");
 }
 
 /**
  * Directory holding project-scoped custom agent definition files.
  *
- * `<cwd>/.pi/agents` is a Pi platform convention, also encoded by
+ * `<cwd>/.zrow/agents` is a Pi platform convention, also encoded by
  * `@gotgenes/pi-subagents`' `loadCustomAgents` (`config/custom-agents.ts`).
  * The two packages encode it independently — pi-permission-system has no
  * dependency on pi-subagents (ADR-0002) — so this is this package's
  * authoritative copy.
  */
 export function getProjectAgentsDir(cwd: string): string {
-  return join(cwd, ".pi", "agents");
+  return join(cwd, CONFIG_DIR_NAME, "agents");
 }
 
 export function getLegacyGlobalPolicyPath(agentDir: string): string {
@@ -39,7 +40,7 @@ export function getLegacyGlobalPolicyPath(agentDir: string): string {
 }
 
 export function getLegacyProjectPolicyPath(cwd: string): string {
-  return join(cwd, ".pi", "agent", "pi-permissions.jsonc");
+  return join(cwd, CONFIG_DIR_NAME, "agent", "pi-permissions.jsonc");
 }
 
 export function getLegacyExtensionConfigPath(extensionRoot: string): string {

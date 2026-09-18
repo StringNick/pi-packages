@@ -69,7 +69,7 @@ describeIfPi("acceptance: autoformat:touched event bus", () => {
 
     // Project config: formatter writes to the recorder; flush on session
     // shutdown so closing stdin is enough to drain the queue.
-    const configDir = join(workDir, ".pi", "extensions", "pi-autoformat");
+    const configDir = join(workDir, ".zrow", "extensions", "pi-autoformat");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(
       join(configDir, "config.json"),

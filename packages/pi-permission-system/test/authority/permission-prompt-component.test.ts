@@ -189,7 +189,7 @@ describe("presentInlinePermissionPrompt", () => {
     void presentInlinePermissionPrompt(
       view,
       "Permission Required",
-      makeAsk(`~/.pi/agent/sessions/${"a".repeat(300)}`),
+      makeAsk(`~/.zrow/agent/sessions/${"a".repeat(300)}`),
     );
     const width = 40;
     const lines = captured.component?.render(width) ?? [];

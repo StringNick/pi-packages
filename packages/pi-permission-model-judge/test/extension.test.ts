@@ -406,7 +406,7 @@ describe("global config scope", () => {
     // Asserting on the loaded `instructions` — which `reviewPath` sends as the
     // system prompt — is what makes this a real red. Asserting only that the
     // link registered passes on a machine that happens to have a config at the
-    // hardcoded `~/.pi/agent`, and fails on one that does not.
+    // hardcoded `~/.zrow/agent`, and fails on one that does not.
     expect(complete).toHaveBeenCalledWith(
       MODEL,
       expect.objectContaining({ systemPrompt: SCOPED_INSTRUCTIONS }),

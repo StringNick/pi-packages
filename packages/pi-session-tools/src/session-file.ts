@@ -3,14 +3,14 @@
  *
  * Pi encodes a session's launch cwd into its storage directory name
  * (`--<cwd with leading slash stripped and every "/" replaced by "-">--`)
- * under a sessions root (`~/.pi/agent/sessions/` by default).
+ * under a sessions root (`~/.zrow/agent/sessions/` by default).
  * This module owns that encoding plus a generic JSONL session-file reader,
  * so callers can read an arbitrary session file without hand-rolling either.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { getSessionsDir } from "@earendil-works/pi-coding-agent";
 
 /** Parsed JSONL entry with at least a `type` discriminant. */
 export interface ParsedEntry {
@@ -56,7 +56,7 @@ export function encodeCwdToSessionDirName(cwd: string): string {
   return `--${stripped.replaceAll("/", "-")}--`;
 }
 
-const DEFAULT_SESSIONS_ROOT = join(homedir(), ".pi", "agent", "sessions");
+const DEFAULT_SESSIONS_ROOT = getSessionsDir();
 
 /**
  * Derive the sessions root directory from the current session file.
@@ -65,7 +65,7 @@ const DEFAULT_SESSIONS_ROOT = join(homedir(), ".pi", "agent", "sessions");
  * `currentSessionFile` and returns the path prefix before it — this works
  * for both a normal session file and a subagent's nested `tasks/` file,
  * since the encoded segment is a path prefix in both.
- * Falls back to `~/.pi/agent/sessions` when the session file is undefined
+ * Falls back to `~/.zrow/agent/sessions` when the session file is undefined
  * or the encoded segment is not found in it.
  */
 export function deriveSessionsRoot(

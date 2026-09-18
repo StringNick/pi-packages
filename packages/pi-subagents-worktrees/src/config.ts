@@ -4,7 +4,7 @@
  * Worktrees are opt-in by agent type: an agent runs in a worktree only when its
  * type appears in `worktreeAgents`. Config is read from a global file
  * (`<agentDir>/subagents-worktrees.json`) merged under a project file
- * (`<cwd>/.pi/subagents-worktrees.json`, which overrides global).
+ * (`<cwd>/.zrow/subagents-worktrees.json`, which overrides global).
  * Missing files are silent; a malformed file warns and falls back to empty.
  *
  * Consumes the shared `loadLayeredSettings` helper from

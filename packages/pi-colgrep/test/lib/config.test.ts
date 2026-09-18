@@ -12,8 +12,8 @@ import {
 
 describe("getGlobalConfigPath", () => {
   it("constructs the expected global path", () => {
-    expect(getGlobalConfigPath("/home/user/.pi")).toBe(
-      `/home/user/.pi/extensions/${EXTENSION_ID}/config.json`,
+    expect(getGlobalConfigPath("/home/user/.zrow")).toBe(
+      `/home/user/.zrow/extensions/${EXTENSION_ID}/config.json`,
     );
   });
 });
@@ -21,7 +21,7 @@ describe("getGlobalConfigPath", () => {
 describe("getProjectConfigPath", () => {
   it("constructs the expected project path", () => {
     expect(getProjectConfigPath("/my/project")).toBe(
-      `/my/project/.pi/extensions/${EXTENSION_ID}/config.json`,
+      `/my/project/.zrow/extensions/${EXTENSION_ID}/config.json`,
     );
   });
 });

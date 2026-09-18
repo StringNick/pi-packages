@@ -1,9 +1,10 @@
 // Persistence for pi-subagents operational settings.
-// - Global:  ~/.pi/agent/subagents.json (agentDir injected at construction) — manual defaults, never written here
-// - Project: <cwd>/.pi/subagents.json — written by /agents → Settings; overrides global on load
+// - Global:  ~/.zrow/agent/subagents.json (agentDir injected at construction) — manual defaults, never written here
+// - Project: <cwd>/.zrow/subagents.json — written by /agents → Settings; overrides global on load
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { type LayeredSettingsSource, loadLayeredSettings } from "#src/layered-settings";
 import type { PromptInheritance } from "#src/types";
 export interface SubagentsSettings {
@@ -408,7 +409,7 @@ function sanitizePromptInheritance(
 }
 
 function projectPath(cwd: string): string {
-  return join(cwd, ".pi", "subagents.json");
+  return join(cwd, CONFIG_DIR_NAME, "subagents.json");
 }
 
 /** Load merged settings: global provides defaults, project overrides. */

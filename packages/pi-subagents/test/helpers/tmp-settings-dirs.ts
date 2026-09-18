@@ -8,7 +8,7 @@ import { join } from "node:path";
  * Creates two tmp directories — a global scope (passed as `agentDir`) and a
  * project scope (passed as `cwd`) — and exposes write helpers that land JSON at
  * the global file (`<globalDir>/<filename>`) and the project file
- * (`<projectDir>/.pi/<filename>`). Call `dispose()` in `afterEach`.
+ * (`<projectDir>/.zrow/<filename>`). Call `dispose()` in `afterEach`.
  */
 export interface SettingsDirs {
   /** Global scope — pass as `agentDir`. */
@@ -17,11 +17,11 @@ export interface SettingsDirs {
   projectDir: string;
   /** Absolute path to the global settings file. */
   globalFile: () => string;
-  /** Absolute path to the project settings file (`<projectDir>/.pi/<filename>`). */
+  /** Absolute path to the project settings file (`<projectDir>/.zrow/<filename>`). */
   projectFile: () => string;
   /** Write `obj` as JSON to the global file. */
   writeGlobal: (obj: unknown) => void;
-  /** Write `obj` as JSON to the project file, creating `<projectDir>/.pi/` first. */
+  /** Write `obj` as JSON to the project file, creating `<projectDir>/.zrow/` first. */
   writeProject: (obj: unknown) => void;
   /** Remove both tmp directories. */
   dispose: () => void;
@@ -32,7 +32,7 @@ export function createSettingsDirs(filename: string): SettingsDirs {
   const globalDir = mkdtempSync(join(tmpdir(), "pi-settings-global-"));
   const projectDir = mkdtempSync(join(tmpdir(), "pi-settings-project-"));
   const globalFile = () => join(globalDir, filename);
-  const projectFile = () => join(projectDir, ".pi", filename);
+  const projectFile = () => join(projectDir, ".zrow", filename);
   return {
     globalDir,
     projectDir,
@@ -42,7 +42,7 @@ export function createSettingsDirs(filename: string): SettingsDirs {
       writeFileSync(globalFile(), JSON.stringify(obj));
     },
     writeProject(obj: unknown) {
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
+      mkdirSync(join(projectDir, ".zrow"), { recursive: true });
       writeFileSync(projectFile(), JSON.stringify(obj));
     },
     dispose() {

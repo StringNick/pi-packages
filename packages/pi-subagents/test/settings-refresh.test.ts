@@ -63,7 +63,7 @@ describe("loadCustomAgents bounds", () => {
     agentDir = join(root, "profile");
     cwd = join(root, "project");
     mkdirSync(join(agentDir, "agents"), { recursive: true });
-    mkdirSync(join(cwd, ".pi", "agents"), { recursive: true });
+    mkdirSync(join(cwd, ".zrow", "agents"), { recursive: true });
   });
 
   afterEach(() => {

@@ -101,7 +101,7 @@ export class AgentTool {
 			);
 		}
 		this.settings.refresh?.();
-		// Reload custom agents so new .pi/agents/*.md files are picked up without restart
+		// Reload custom agents so new .zrow/agents/*.md files are picked up without restart
 		this.registry.reload();
 
 		// User choices win over tool arguments while still respecting locks.
@@ -285,7 +285,7 @@ ${guidelines}
 					description: "A short (3-5 word) description of the task (shown in UI). Required for new agents; omitted on resume.",
 				})),
 				subagent_type: Type.Optional(Type.String({
-					description: `Required for new agents; omitted on resume, which keeps the original type. Unknown or disabled types are rejected. Available types: ${availableTypesText}. Custom agents from .pi/agents/<name>.md (project) or ${agentDir}/agents/<name>.md (global) are also available.`,
+					description: `Required for new agents; omitted on resume, which keeps the original type. Unknown or disabled types are rejected. Available types: ${availableTypesText}. Custom agents from .zrow/agents/<name>.md (project) or ${agentDir}/agents/<name>.md (global) are also available.`,
 				})),
 				model: Type.Optional(
 					Type.String({

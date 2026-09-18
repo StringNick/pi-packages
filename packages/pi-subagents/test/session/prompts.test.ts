@@ -404,12 +404,12 @@ describe("buildAgentPrompt", () => {
 
     /** A skill fixture, rendered through Pi's own prompt formatter below. */
     function skill(name: string): Skill {
-      const filePath = `/parent/.pi/skills/${name}/SKILL.md`;
+      const filePath = `/parent/.zrow/skills/${name}/SKILL.md`;
       return {
         name,
         description: `The ${name} skill.`,
         filePath,
-        baseDir: `/parent/.pi/skills/${name}`,
+        baseDir: `/parent/.zrow/skills/${name}`,
         sourceInfo: createSyntheticSourceInfo(filePath, { source: "test" }),
         disableModelInvocation: false,
       };
