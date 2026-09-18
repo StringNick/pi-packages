@@ -201,7 +201,9 @@ export class Subagent {
 	}
 	private launchAttribution?: { model: Model<any> | undefined; thinkingLevel: ThinkingLevel };
 
-	readonly abortController: AbortController;
+	private _abortController: AbortController;
+	/** Cancels whichever run is current. */
+	get abortController(): AbortController { return this._abortController; }
 	private _promise?: Promise<void>;
 	private _executionPending = false;
 	private resumeAbort?: AbortController;
@@ -439,7 +441,7 @@ export class Subagent {
 		this.state = init.state ?? new SubagentState();
 
 		// Abort controller — always created, never injected
-		this.abortController = new AbortController();
+		this._abortController = new AbortController();
 
 		// Execution machinery — a single mandatory collaborator
 		this.execution = init.execution;
