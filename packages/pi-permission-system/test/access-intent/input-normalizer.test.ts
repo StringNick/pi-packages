@@ -167,6 +167,32 @@ describe("normalizeInput — non-MCP surfaces", () => {
       expect(result.values).toEqual(["*"]);
     });
   });
+
+  // `evaluateAnyValue` is the sole multi-value evaluator (#928). That is only
+  // sound because `mcp` is the one surface producing more than one candidate:
+  // everywhere else the list has a single element, where a last-match-wins scan
+  // across candidates and a first-non-default scan across them cannot differ.
+  // The claim is structural — `normalizeInput`'s switch is exhaustive over
+  // `ToolKind` — so it is pinned here rather than inferred from a green suite.
+  describe("candidate count per surface", () => {
+    it.each([
+      ["skill", "skill", { name: "my-skill" }],
+      ["bash", "bash", { command: "ls -la" }],
+      ["path-bearing tool", "read", { path: ".env" }],
+      ["extension tool", "my_extension_tool", { some: "input" }],
+    ])(
+      "a %s call produces exactly one candidate",
+      (_label, toolName, input) => {
+        const result = normalizeInput(toolName, input, ["exa"]);
+        expect(result.values).toHaveLength(1);
+      },
+    );
+
+    it("an mcp call produces more than one candidate", () => {
+      const result = normalizeInput("mcp", { tool: "exa_search" }, ["exa"]);
+      expect(result.values.length).toBeGreaterThan(1);
+    });
+  });
 });
 
 describe("normalizeInput — MCP surface", () => {
