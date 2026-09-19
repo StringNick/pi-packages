@@ -1,7 +1,9 @@
 # AGENTS.md
 
-⚠️ It looks like the agent was started from a package subdirectory.
+Zrow fork — do not follow upstream workflow docs.
 
-Advise the user to launch Pi from the **repository root** (`pi-packages/`) instead.
-The root provides `.pi/settings.json`, `.pi/prompts/`, and the full skill set.
-Package-specific context for this package is available via the `package-pi-subagents` skill.
+This package is one of two used by Zrow (`@gotgenes/pi-subagents`,
+`@gotgenes/pi-permission-system`). Orientation: `../../AGENTS.md` (fork policy:
+cherry-picks only, no upstream merges, TUI components not mounted).
+Package context: `README.md`, `docs/host-integration.md`, `docs/architecture/`,
+`docs/decisions/`, `docs/configuration.md`.

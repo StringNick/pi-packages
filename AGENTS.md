@@ -1,528 +1,74 @@
-# AGENTS.md
-
-## Monorepo Structure
-
-This is a pnpm workspace monorepo.
-Each package under `packages/` is a Pi extension published to npm under `@gotgenes/`.
-Always launch Pi from the repo root — the root `.pi/settings.json` and `.pi/prompts/` are only discovered from CWD.
-The working directory is always the repo root, so for a package-scoped script run `pnpm --filter @gotgenes/<pkg> run <script>` (or `pnpm -C packages/<pkg> run <script>`) from the root instead of `cd packages/<pkg> && pnpm run <script>`.
-Before working on a specific package, load its `package-<name>` skill for architecture, priorities, and testing context.
-Load skills inline — never dispatch a subagent to load skills.
-When adding a new package, wire it into all of:
-
-1. `.pi/settings.json` — add the `../packages/<pkg>` load path.
-   Add the `{ "source": "npm:@gotgenes/<pkg>", "extensions": [], "skills": [] }` disable entry (prevents double-load) **only after the package's first npm publish** — before that, the `npm:` reference makes Pi and the subagent launcher `npm install` a nonexistent package and fail (Refs #600).
-2. `README.md` — add the package to the Packages table, and to the no-dedicated-skill note unless it ships a `package-<pkg>` skill.
-3. `.github/ISSUE_TEMPLATE/bug_report.yml` and `.github/ISSUE_TEMPLATE/feature_request.yml` — add the package to the `Package` dropdown in **both** forms.
-   The dropdown is `required: true` and `blank_issues_enabled: false`, so a package missing here cannot be reported at all.
-   These are static YAML that GitHub reads from the default branch, so they cannot derive the list at run time the way the labeler does (Refs #818).
-4. `gh label create pkg:<pkg> --description "Issues related to <pkg>" --color 0075ca` — the label must exist before an issue selects the package, or `scripts/label-issues.sh` fails on `gh issue edit`.
-
-Release configuration is **not** on that list, and neither is the issue auto-labeler.
-Both derive the package list from the workspace on disk: `scripts/release/lib.sh` and `scripts/issue-package-labels.sh` enumerate `packages/*/package.json`, so a new package is picked up with no edit at all (Refs #818, #865).
-Repo-level work — build, CI, tooling, cross-package docs — is labeled `scope:repo` rather than with every package's label.
-That scope is always asserted (the forms' repo-wide option, or `gh issue create --label scope:repo`), never inferred from the absence of a package.
-
-A multi-line `run:` block in `.github/workflows/` belongs in `scripts/`, with the workflow keeping a one-line invocation.
-Split a script that pushes from the read-only derivation it calls, and refuse the pushing half outside CI — `scripts/release/prepare-release.sh` guards on `CI`, `scripts/release/next-version.sh` only prints (Refs #816, #865).
-
-### Releasing
-
-Releases are **dispatched, never automatic**.
-`.github/workflows/release.yml` triggers only on `workflow_dispatch` and takes an explicit package list plus an optional expected-SHA guard:
-
-```bash
-gh workflow run release.yml -f packages="pi-subagents pi-colgrep" -f sha="$(git rev-parse HEAD)"
-```
-
-Naming packages explicitly is the point: several can be releasable at once, and only the named ones go.
-Deferring a release is therefore an omission with no state to clean up — just do not name the package.
-A `release` concurrency group serializes runs.
-
-To see what would release, without releasing anything:
-
-```bash
-./scripts/release/next-version.sh <pkg>   # prints <pkg>-v<version>, or nothing
-./scripts/release/verify-cliff-parity.sh  # all packages: tags, package.json, and what is pending
-```
-
-Both are read-only and offline.
-Never name a package that `next-version.sh` prints nothing for — `prepare-release.sh` validates every named package **before** writing anything, so one such package refuses the whole run and nothing is tagged.
-
-The run's three jobs are `prepare` → `publish` → `github-release`.
-If `prepare` fails, nothing was tagged and the release can simply be re-dispatched.
-If a later job fails, the tags are already pushed — fix the cause and re-run that job; re-dispatching would refuse on the existing tag.
-
-Versions and changelogs come from [git-cliff](https://git-cliff.org) reading local git, with no network in the derivation.
-See `docs/decisions/0002-git-cliff-release-automation.md` for why, and for the accepted residual (there is no release-PR review gate).
-
-A brand-new package's **first** release is a manual, operator-chosen step. npm Trusted Publishing cannot create a package that does not exist, so `publish` 404s; and `next-version.sh` refuses an untagged package rather than inventing a first version, because this repo's packages opened at 1.0.0, 0.2.0, and 0.1.0 with no convention to infer.
-Publish the first version manually (`pnpm login`, then `pnpm --filter @gotgenes/<pkg> publish --access public --no-git-checks` — no `--provenance`), tag it `<pkg>-v<version>`, then configure the Trusted Publisher on npmjs.org (repo `gotgenes/pi-packages`, workflow **`release.yml`**).
-The publish needs an interactive terminal when the registry requires an OTP (`ERR_PNPM_OTP_NON_INTERACTIVE`) — the operator runs it, not the agent (Refs #732).
-Every release after that runs through the workflow (Refs #600, #865).
-
-A cross-package change bumping a dependent package to a **same-day-published** sibling hits pnpm's 24h `minimumReleaseAge` supply-chain gate — CI's `--frozen-lockfile` install and local `pnpm exec` hooks fail `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`.
-`minimumReleaseAgeExclude` does not fix it (honored at resolution, ignored by pnpm's lockfile verification pass); the repo sets `trustLockfile: true` in `pnpm-workspace.yaml` to trust the reviewed lockfile and skip that re-verification.
-Do not remove it, and do not reach for `minimumReleaseAge: 0` (which also disables the delay for a fresh `pnpm add`).
-Refs #626.
-
-A package's internal docs directories — `docs/plans`, `docs/retro`, `docs/architecture`, `docs/decisions`, `docs/assets` — are excluded from its release scope by convention, in `scripts/release/lib.sh`.
-Adding one of those subdirectories needs no configuration edit; adding a differently named one does.
-Commits that only touch excluded paths do not trigger releases, and neither do files outside the package tree.
-A package's own `CHANGELOG.md` is excluded too, so a release commit never re-enters the next changelog.
-
-### Docs-in-distribution convention
-
-The published npm tarball ships runtime code, user-facing docs, and nothing else — no dev files (`test/`, `tsconfig.json`, `vitest.config.ts`, `AGENTS.md`, `.pi/`, `.prettierignore`) and no internal working docs.
-Every package uses a `files` allowlist in `package.json`; no package uses `.npmignore` (Refs #484, #523).
-A bare directory entry (e.g. `"src"`) is recursive, so runtime code ships without allowlist edits as it grows; npm always auto-includes `package.json`, `README*`, and `LICENSE*` regardless of the allowlist.
-List only the additional top-level ship targets explicitly: `dist` (built type bundles), `schemas`, `config/*.example.json`, and user-doc paths.
-Ship the docs the README links to (`docs/*.md` plus referenced subdirectories such as `guides`/`migration`/`assets`/`architecture`/`decisions`), never a bare `"docs"` entry — that would also ship `docs/plans` and `docs/retro`.
-A package with no user-facing docs omits any `docs` entry from its allowlist entirely.
-A link from a shipped doc into a non-shipped path (`docs/decisions/`, `docs/architecture/`) resolves to nothing in the tarball — use an absolute GitHub URL, or add the target to `files` (Refs #647).
-Verify the allowlist with `pnpm --filter <pkg> exec pnpm pack --pack-destination /tmp` and inspect `tar tzf` for the expected file set — confirm it contains runtime code and user docs, and excludes `test/`, dev config, and internal docs.
-Run `pnpm fallow dead-code` locally before pushing a new or dependency-changed package — CI gates on it, and `devDependencies` copied from a sibling package often include unused entries.
-
-### Architecture-doc conventions
-
-Every package's `docs/architecture/architecture.md` module-tree entries describe **current behavior** — what each module is now.
-Cite an issue in a module-tree entry **only** when the ref encodes an active constraint (a lint-guarded boundary, an ADR string boundary, a structural invariant); all other provenance belongs in git log and `docs/architecture/history/`, never in the tree (the "relocated #559, dissolved #505, renamed #510…" trail).
-Without this discipline, the per-change doc-update commits that append provenance re-inflate the tree — the debt #601 and #605 paid down in bulk for pi-permission-system and pi-subagents.
-`/finish-phase`'s bounded doc-hygiene step holds each phase's touched module-tree entries to this standard (Refs #601, #605, #606, #607).
-
-An accepted residual — an ADR bullet, a follow-up issue body — is a claim about the **mechanism**, not the symptom that exposed it.
-Enumerate the mechanism's inputs before writing it.
-The residual recorded for #821 was rewritten three times because each draft generalized from its last probe.
-
-### Reading this repo's own artifacts
-
-When mining history for a **durable** claim — a scope charter, a triage verdict, an ADR, a README boundary — this repo's artifacts answer narrower questions than they appear to.
-
-A plan's `## Non-Goals` is scoped to that change, not to the package.
-It answers "what is out of scope for this change", never "what is out of scope forever", and it mixes three unrelated claims under one heading: sequencing (not in this change), deferral (not until someone asks), and a real boundary (not ever, and here is why).
-So **a plan Non-Goal is a lead, not a citation** — use it to find the ADR or numbered design principle, and cite that.
-A Non-Goal decays fastest in the most active packages: `pi-colgrep`'s plan `0092` declared `promptGuidelines` out of scope and `fa164a19` changed one the same day under the same issue, and `pi-github-tools`' plan `0005` forbade retry/timeout on one-shot tools before #673 and #764 added both (Refs #775).
-
-The same holds for a plan's enumerated **external** facts — a command's options, an API surface, a spec's values.
-Verify each against the real surface (`man`, `--help`, the schema) before it lands in a security boundary; #807's plan omitted `find -fprint0` and admitted `file` as read-only, and both shipped as fail-opens.
-Documentation answers whether a flag exists, not what a given binary does with it — run the tool when the answer gates a security boundary.
-A shared table row asserts its fact of every implementation the *name* reaches: `grep --context` takes no separate argument and `rg --context` does, and `awk` is GNU awk on Fedora and one-true-awk elsewhere (Refs #823).
-A dependency floor is a claim about **each** symbol the change uses, not about the release that introduced the feature.
-`git tag --contains <sha>` answers which release carries one commit; sibling accessors can land in a later one.
-Resolve every symbol against the candidate floor (`git show <tag>:<path> | grep <symbol>`) before pinning it (Refs #812).
-Sampling one version without the symbol and one with it bounds an interval, not a boundary — name the later one only after checking every version between.
-Enumerate them from the registry (`pnpm view <pkg> versions`), not from git tags: `pi-ai@0.80.0` was tagged and never published, so no operator can be on it (Refs #905).
-
-Pull-request status is an **inverted** signal here, because the repo reimplements adopted third-party changes through its own TDD cycle rather than merging them.
-Seven of nine closed-unmerged external PRs on `pi-permission-system`, and six on `pi-subagents`, shipped as capability with `Co-authored-by` credit — so "closed unmerged" usually means *accepted*.
-Read the close comment, never the close status.
-An **open** PR is not a decline either: #692 sits unmerged because the policy-source channel is undecided (#639), while `pi-permission-system` design principle 8 anticipates the capability outright.
-
-Check an ADR's frontmatter `status:` before citing it.
-`pi-subagents` `docs/decisions/0001-deferred-patches.md` is `superseded`, and it is still the only record of the `pi -e` ephemeral-extension limitation.
-
-A roadmap step's `Outcome:` line is written from the symptom at phase-planning time, before anyone traced the mechanism, so it can promise relief the change does not produce for the example it names.
-Trace that example through the code before turning an `Outcome:` into a test.
-Phase 14 Step 10 promised `cat /outside/a.ts > /outside/b.ts` would narrow, but both tokens derive the same `/outside/*` glob, so a test written from the line would have passed under the old code (Refs #810).
-
-A step's `**Cause:**` bullet is likewise the mechanism the discovery sweep saw, not a census of the ones present.
-Trace the whole function before accepting it as the scope: Phase 22 Step 13 named one truthiness check, and the same five lines held a second fail-open of the same shape (Refs #871).
-
-A third-party report's root-cause narrative is the reporter's model of a system they do not maintain, so its claim about the *other* side is the one to check.
-Read that project's source and the published tarball of the version they ran (`pnpm view <pkg> dist.tarball`), never the claim alone.
-Issue #883 asserted a bridge's safeguard could never match; it shipped in the reported version, worked, and was defeated by a truncation on our side.
-Ask separately whether the defect reaches us at all — a sibling `@gotgenes/*` extension may already mitigate it, which changes the priority and the owner but not the defect (Refs #883).
-
-### Workflow
-
-- Keep scope tight.
-- Prefer small, reversible changes.
-- Preserve intentional behavior unless there is a clear reason to change it.
-- Ask before removing functionality or changing defaults.
-- To check a GitHub issue/PR's state (including upstream repos), use `gh issue view N --repo owner/repo`, not web search.
-- Never run a state-mutating command (`gh issue close`, `gh pr merge`, `git push`) to discover what it does — it executes.
-  Probe with a read-only query (`gh api .../issues/N --jq .state`) or `--help` (Refs #661).
-  When such a command fails with a transient error (HTTP 5xx), verify whether it applied before retrying — `gh pr merge` can 503 after the merge lands.
-  Probe with REST (`gh api repos/OWNER/REPO/pulls/N --jq .merged`), which stays up when the GraphQL endpoint behind `gh pr view --json` and `gh pr merge` is degraded (Refs #732).
-  This applies to any hand-run `gh pr merge` (Refs #764).
-- For Pi SDK internals (prompt assembly, caching, session lifecycle), read Pi's own source at the `pi` checkout beside this repo's main checkout, rather than the installed `dist/` bundles or their sourcemaps.
-  That is `../pi` from the root checkout and `../../pi` from a worktree — the worktree sits one level deeper, so the bare `../pi` misses it (Refs #801).
-  Dispatch an `Explore` subagent with `model: "sonnet-5"` for a multi-hop trace there (e.g. "how does `ui.custom` pass keybindings to the factory?") — a targeted read of a known file is fine inline, but a hunt costs 5–10 greps of this session's context, and `Explore`'s haiku default is too weak for the reasoning.
-  Keep the trace inline when its output is a universal claim the design will rest on — a subagent returns it as a summary you would have to re-verify anyway (Refs #801).
-  The checkout tracks Pi's `main` and runs ahead of the pinned dependency.
-  Read it for mechanism, but confirm any API you design around exists in the installed version first — resolve the version from the package's own `devDependencies` pin, then `grep` the types under that exact `node_modules/.pnpm/@earendil-works+pi-coding-agent@<version>_*/` directory (Refs #661).
-  The bare `@*/` glob matches every version in the store, and `head -1` can select one below the package's declared peer floor (Refs #858).
-  Existence is not enough for a seam you design *around*: a callback's position in the call order, and the data populated by the time it fires, are visible only in the compiled `.js`, never in the `.d.ts` (Refs #696).
-  A line number read there is not citable at all: the checkout drifts mid-session (Refs #733).
-  Cite the pinned version from the installed package's sourcemap — `dist/*.js.map`, `sourcesContent`.
-
-#### Tool-injected messages
-
-The `pi-autoformat` extension emits a `[pi-autoformat] Formatted N file(s)` message after `Edit`/`Write`.
-It is informational — not a turn boundary.
-Continue the current step (e.g. Red→Green→Verify→Commit) until it is complete.
-It also reflows what you just wrote (line wrapping, quote style), so an `oldText` — or a shell/regex pattern — built from the layout you emitted can fail to match; re-read a region you just edited before matching against it again.
-It also joins a line ending in `:` with the sentence after it — to add a sentence there, start a new paragraph, not a new line.
-It likewise joins a sentence onto the previous line when the sentence opens with a lowercase token (a package or command name such as `git-cliff`) — lead with a capital instead (Refs #816).
-It also reads a numbered section citation (`§ *7. Verify CI*`) as a sentence end and splits it — cite the heading instead (`` the `## 7. Verify CI` section ``).
-It also reads a leading `~` as strikethrough and rewrites a `~`-prefixed token (`(~:211)` → `(~~211)`), which `rumdl check` passes — write an approximate line reference as `line ~211` (Refs #878).
-It fires on `Edit`/`Write` only, so a file appended with a shell heredoc skips formatting entirely and fails `pnpm run lint` — append source with `Write`/`Edit` too, not just markdown.
-It also merges a new `export type { … }` statement into an adjacent one and emits the merge unformatted, so the pre-commit hook rewrites the file and rejects the commit.
-Write the merged statement by hand (Refs #885).
-
-#### Stale prompt-template expansion
-
-A slash command's expanded body is a snapshot from when the Pi process loaded it — so after this session edits a `.pi/prompts/*.md` template, a later same-process invocation of that command can run the **pre-edit** copy.
-When the pasted prompt body contradicts the on-disk file (e.g. you just changed `/ship` and its steps read stale), treat the **on-disk file as authoritative** and follow it, not the injected text (Refs #586).
-
-#### Stale in-process extension code
-
-Pi loads each package's extension once at session start, so a session that edits `packages/<pkg>/src/` keeps running the **pre-edit** tool for the rest of its life.
-When the change targets a tool the workflow itself calls (`ci_find`, `ci_watch`, `issue_close`), restart Pi before the step that uses it — otherwise `/ship` exercises the old behavior and the new code looks broken (Refs #673).
-The same applies when a change **removes** a tool `/ship` calls: the running session still has it registered (Refs #865).
-A session that renames or deletes a prompt template is subject to the same staleness: it keeps the commands it registered at startup, so the first run of a renamed command needs a fresh session (Refs #869).
-
-The same staleness makes the session's own system prompt a reliable witness for the **published** behavior: a defect in prompt assembly (a tool's `Available tools:` line, a guideline bullet, an injected block) is readable in context at zero tool cost.
-Read it before hunting the SDK — but never to verify your own fix, which the running session cannot see (Refs #778).
-
-#### Edit tool batches
-
-A multi-edit `Edit` call is atomic: if one `oldText` fails to match, the whole batch is rejected and nothing is applied.
-Each `edits[]` entry has exactly one `oldText`/`newText` — put a second replacement in a second array entry, never as `oldText2`/`newText2`.
-Extra suffixed keys are silently ignored while the tool still reports `Successfully replaced N block(s)`, so count reported blocks against intended edits (Refs #605).
-After a rejection, re-apply every intended edit (not just the ones you retried) and run `pnpm run check` to confirm none were silently dropped — but `tsc` passes on a dropped `import type` removal (an unused type import is not an error), so re-read the affected region rather than trusting the check alone.
-When an edit's `oldText` would span a decorative comment rule (a long run of `─`/`═`) or a width-padded table row, anchor on adjacent unique code lines rather than the padded span itself — miscounting it fails the whole atomic batch, and `rumdl fmt` does not re-pad tables for you.
-When the rule line is itself the target (deleting a section header with its block), copy it from a fresh `Read` of that region — retyping the dash run is what fails the batch.
-When the rule line must be **rewritten** (a new label, so the padding changes), `Edit` has nothing to copy — write the line programmatically (`'─' * (78 - len(label))`).
-If you delete such a block by line number with `sed`, re-read the region afterward to confirm you did not remove an enclosing brace.
-A multi-line `perl -0777`/`sed` regex substitution across many similar blocks is a trap — a non-greedy `.*?` group spans block boundaries and silently corrupts a neighbor; collapse repeated multi-line literals with per-block `Edit` calls and reserve scripted substitution for single-line per-symbol renames (Refs #525).
-A line-mode `sed -i`/`perl -pi` (no `-0777`) holds one line in the pattern space, so a pattern containing `\n` silently matches nothing and reports success — use `Edit` (Refs #914).
-A scripted bulk edit across test files cannot tell a mock **producer** from an **assertion**, whatever its regex safety, so its correctness rests on the suite rather than the script.
-That holds only where assertions are exact (`toEqual`/`toHaveBeenCalledWith`).
-A touched `toMatchObject`/`objectContaining` site absorbs a wrong insertion and still passes — re-read those by hand instead of counting the green run as verification (Refs #726).
-Run the full package suite, not the files the rename's own grep matched — a mock *producer* spells the symbol as an object key (`externalPaths:`), which a call-site grep (`\.externalPaths\(`) never sees (Refs #807).
-A replacement containing backslashes is a trap even as a single-line rename — shell, perl, and the regex engine each consume an escape level.
-Use `Edit` (Refs #653).
-A scripted symbol rename also rewrites the prose *around* the symbol, where the old signature's adjectives survive as contradictions ("the zero-arg `getRootPermissionsService()`").
-Grep the words that described the old shape (`zero-arg`, `takes no`, the old arity) after the script — no gate flags them (Refs #794).
-When wrapping existing lines in a new enclosing block (a `describe`, function, or `try`), emit the opening and closing braces as two `edits[]` entries in one `Edit` call (or use `Write`) — a lone opening brace fails the whole file parse, and the close is too far from the open to anchor in the same `oldText`.
-Inserting a new *sibling* block (a second `describe`, a new function) mid-file can close the enclosing block early and reparent everything after the seam.
-`tsc`, lint, and a green suite all miss it, so anchor the insertion on the enclosing block's own closing line and verify with `grep -n '^describe\|^});'` (Refs #788).
-
-#### Multi-session issue lifecycle
-
-Larger issues span multiple sessions, each handling one stage.
-The standard flow is:
-
-1. `/plan-issue #N` — read the issue, explore the codebase, produce a numbered plan, commit it.
-   For a code-touching change, a fresh-context `tidy-first-assessor` runs after the design is settled and before the plan is written; its accepted preparatory refactorings become `refactor:`/`test:` steps in the plan's TDD Order (Kent Beck's Tidy First).
-2. `/tdd-plan` or `/build-plan` — execute the plan (TDD for code changes, build for docs/config).
-   The preparatory steps are ordinary plan steps here; a fresh-context `pre-completion-reviewer` runs the quality gate at the **end**.
-3. Pre-completion review — dispatched automatically at the end of step 2; a fresh-context `pre-completion-reviewer` subagent runs deterministic checks and a judgment checklist before recommending `/ship`.
-4. `/ship #N` — land the work, verify CI, close the issue, dispatch the release.
-5. `/retro` — review the session(s) for workflow improvements, persist retro notes.
-
-A change that lands outside `/tdd-plan` or `/build-plan` fires no automatic `pre-completion-reviewer` dispatch.
-Dispatch one by hand before committing a rewrite of an artifact a prior review rejected (Refs #639).
-
-Each prompt template writes a stage entry to `docs/retro/NNNN-<slug>.md` (or `packages/<PKG>/docs/retro/`) before finishing.
-These entries accumulate across sessions and serve as the cross-session context bridge — when a later stage starts, it reads the retro file to pick up decisions, observations, and warnings from prior sessions.
-
-An issue spun off mid-lifecycle — by a step's implementation, a plan's follow-up, or a retrospective — is evaluated for roadmap fit when it is filed, not at phase close, so load the `roadmap-fit` skill at the filing point.
-It exits immediately when the package has no open improvement phase; otherwise it records the operator's disposition (fold into a step / new step / defer / out of scope) in the roadmap's `#### Open-issue sweep dispositions` list, and filing-without-scope-creeping remains the correct local move.
-`/finish-phase` reconciles the phase window's issues against that list before archiving, so a miss surfaces at phase close instead of vanishing from the history (Refs #767).
-
-Release batching is plan-driven: `/plan-improvements` annotates each roadmap step with a grep-able `Release:` tag (and a `Release batches` subsection), `/plan-issue` derives a `Release Recommendation` from those annotations, and `/ship` reads the plan's `**Release:**` marker early — asking only when it is `mid-batch — defer`, otherwise releasing now.
-A `refactor:`/`style:`/`test:`/`build:`/`ci:` commit is a skipped changelog type and does not cut a release on its own; such work lands on `main` and auto-batches into the next releasing commit.
-`chore:` is **not** skipped — it is a visible "Miscellaneous Chores" section and cuts a patch on its own, as it did under release-please.
-So a refactor-only plan's `Release Recommendation` rationale must not claim it will cut a release (Refs #479).
-Do not reason about this from commit types when you can ask: `./scripts/release/next-version.sh <pkg>` applies the real rules offline and prints the tag that would be cut, or nothing.
-
-Release is independent of any issue's open/closed state: holding an issue open does not defer its merged `fix:`/`feat:` commits, and closing one does not release them (Refs #625).
-The only lever is which packages a release dispatch names, which makes deferral per-package by construction and leaves no state behind — there is no open pull request to remember.
-A cross-package change names every package it bumps in one dispatch (Refs #792).
-
-Before #865 this was release-please's job, and much of the machinery above existed to work around its API commit walk: a `last-release-sha` baseline, two scripts maintaining it, and a per-component release PR to merge.
-All of it is gone.
-When reading history — a retro, an older plan, a commit message — treat `last-release-sha`, `separate-pull-requests`, `release_pr_merge`, and `defaultMergeMethod` as artifacts of that era, not as current mechanism.
-
-#### Clarification gates
-
-Present the substance — concrete examples, before/after, trade-offs — in a message first, then call `ask_user` with options that reference it.
-An option list is a set of choices, not a briefing; context crammed into option descriptions — or into `preview` panes — gets bounced (Refs #635, #737, #746).
-When the decision settles a structure that will repeat across many files, settle its **size budget** in the same gate.
-A placement or shape choice is only sound for a known size, so show a worked example of the largest instance (Refs #775).
-Define a gate's terms of art before its substance — a term the operator must decode is a question they cannot answer (Refs #786: `node`, chain `link`, and the service accessor each bounced a gate).
-When rejecting a candidate on cost, price its cheapest viable form — #786 dismissed a session-keyed accessor as a semver-major redesign, and its additive variant became the adopted decision.
-When every option shares a premise — the same object grown, the same representation assumed, the same vocabulary kept — name it and offer the option that removes it, or say why it is not viable.
-Refs #787: three wiring options all grew `AgentPrepHandler`, and the operator's "too many responsibilities" note produced the extraction that made the new dependency unnecessary.
-Refs #639: three gates on `commandEffects` all assumed pattern-keyed matching, and the operator's "done with pattern-based expressions" produced the structured shape that dissolved the overlap, merge, and guard questions at once.
-When the change adopts a third-party artifact, that artifact's own decomposition — its config surface, its precedence order, its field set — is a premise like any other.
-Derive the option space from the problem, then check the contribution against it: #883's first gate kept PR #884's agent-level frontmatter in three of four options, and the operator's "inheritance is a property of the transport" removed it outright (Refs #883).
-When a gate offers mechanisms for fixing a hazard, first name which component or config rule owns the lever and what happens today in each concrete configuration — a mechanism menu without that grounding gets bounced for it (Refs #789, #803).
-In a bundled gate the substance requirement is per question, not per message — the least-supported question bounces the whole batch (Refs #866).
-An option whose differentiator is a dependency's behavior is a claim about that dependency — read its compiled source before writing the option, never its type declaration or its name (Refs #870).
-
-#### Background agent guardrails
-
-When delegating lint-fix or refactoring work to a background agent:
-
-- Do not change function semantics (removing comparisons, altering control flow, removing defensive checks).
-- Only add `eslint-disable` comments or make type-safe transformations (removing unused imports, adding type annotations).
-- Include `pnpm -r run test` as a verification step before reporting completion.
-
-A read-only agent needs a scope bound too — `find /` is read-only and still walks every mounted volume, trips the external-directory permission gate, and can read a stale copy of a dependency.
-Bound its searches to the repo, and require fixing a failed pattern before widening its root (Refs #696).
-
-A subagent's universal claim ("no ordering issue", "nothing else calls this") is the one to verify — a positive finding ships the line that proves it, a universal one quantifies over cases the report never shows.
-Check a multi-question report against itself first: #725's trace answered "the `tools` option is an allowlist" and "there is no capping issue" in the same document, and answered the second by citing a test fixture rather than the implementation (Refs #725).
-
-The mirror holds for a claim **you** supply: a reviewer cannot verify a coverage assertion handed to it as a premise, so state what you checked, not what you conclude was covered.
-When a change creates N artifacts that cross-reference each other, enumerate the edges rather than sampling them (Refs #775).
-The same holds for a measurement: hand a reviewer the raw source and a mandate to re-derive, not your tables.
-A measurement is also scoped to the commit it was taken at: re-run it after any behavior change rather than defending it, and never re-use a cached baseline whose result depends on filesystem state (Refs #823).
-A `pre-completion-reviewer` given ADR 0013's own numbers returned PASS; an adversarial reviewer given the log returned four blocking defects (Refs #639).
-
-##### Parallel peer sessions (git worktrees)
-
-Run two agents in parallel by giving each its own git worktree and its own interactive Pi session.
-Use `/worktree <issue>` (the project-local `.pi/extensions/worktree.ts` command) or `scripts/worktree-new.sh <issue> [initial-command]` directly.
-The launcher creates branch `issue-<N>-<slug>` off `origin/main`, checks out a worktree at `~/development/pi/pi-packages-worktrees/issue-<N>`, runs `pnpm install`, and spawns a new WezTerm tab whose CWD is the worktree, launching `pi --approve "/plan-issue <N>"`.
-
-Key properties:
-
-- CWD is set at spawn (`wezterm cli spawn --cwd`), never via `cd` — the peer session is born in its worktree, so the `pi-permission-system` `external_directory` gate never fires for its own work.
-- `--approve` is required: Pi keys project trust by directory path, so each fresh worktree is untrusted and would otherwise block on a startup trust prompt.
-- The launcher also runs `mise trust` on the worktree: `mise` gates trust by config-file path too, so a fresh worktree's `mise.toml` `[env]` block (the `scripts/bin` `npm -> pnpm` PATH shims) is skipped until trusted — trusting before `pnpm install` keeps the shims on PATH for both the install and the peer session.
-- The initial slash command is passed as Pi's first positional message, which interactive mode runs through `session.prompt()` — the same path as typed input — so the prompt template expands and runs on startup.
-- Reopen a closed peer tab with `/worktree-open <issue>` (or `scripts/worktree-open.sh <issue>`).
-  Creation refuses an existing worktree by design, so `/worktree` is not the command for this; its refusal names the reopen script.
-  The reopened session runs `pi --approve --continue`, which resumes that peer's own conversation — Pi keys sessions by directory, so `--continue` inside the worktree needs no picker.
-  It validates and spawns only: no branch creation, no `pnpm install`, and it aborts loudly if the directory is missing or is no longer a registered git worktree rather than silently re-creating it.
-- Tear down with `scripts/worktree-rm.sh <issue> [--delete-branch]`.
-
-Convergence (the two-session ship flow):
-
-`main` stays linear and a peer cannot push to it directly, so the convergence is split across the peer and root sessions.
-The root half is the ordinary `/ship <N>`: it detects a **worktree lane** from the presence of an `issue-<N>-*` branch and fast-forward-merges it, where a trunk ship has nothing to merge.
-The close and release steps are identical in both lanes — no branching at all — which is what keeps the two paths from drifting apart; only the CI-failure recovery rule and the teardown remain lane-specific after the push (Refs #869):
-
-1. Peer session — `/sync-worktree <N>`: run pre-push checks, write a **sync** stage note (committed on the branch so it rides the land), then `git fetch origin` + `git rebase main` (local `main` — the ref the root will merge into).
-   The peer never touches `main`, never pushes the branch, never force-pushes — worktrees share the same `.git`, so the root sees the branch ref directly.
-   The peer writes only stage breadcrumbs (planning/TDD/sync); the deliberate, interactive final `/retro` does not run here.
-2. Root session — `/ship <N>`: `git merge --ff-only <branch>` into `main`, run the pre-push checks on the merged tree, push, verify CI, `issue_close`, then release.
-   If the ff-merge is not a fast-forward (another peer landed first), the peer re-runs `/sync-worktree <N>` to rebase onto the new `origin/main`.
-   The checks run here as well as in `/sync-worktree` because the peer checks *before* it rebases, so the tip the root merges has not been checked on its own.
-3. Release is the root's responsibility — peers never dispatch one, and the workflow's `release` concurrency group serializes runs regardless.
-   It honors the plan's `**Release:**` marker: `mid-batch — defer` simply does not name that package.
-4. `/ship` ends a worktree-lane run by executing `scripts/worktree-rm.sh <N> --delete-branch`, then names `/retro <N>` as the final step.
-5. Root session — `/retro <N>`: the deliberate, interactive final retrospective, run at the root on `main` after the land (commits straight to `main`, no branch needed) — mirroring the trunk flow's terminal `/retro`.
-   Run it on your preferred model; the stage breadcrumbs from the peer session are already on `main` for it to synthesize.
-
-Guardrails:
-
-- Partition work by package — one package per peer.
-  Two peers touching `pnpm-lock.yaml` or the same package's source is the main parallel-work hazard.
-- A worktree branch still needs both halves: `/sync-worktree` in the peer, then `/ship` at the root.
-  `/ship` refuses to run anywhere but the root checkout on `main`, so it cannot be used as the peer's half.
-- Whoever lands second rebases first: if `/ship`'s ff-merge fails, the peer re-runs `/sync-worktree` to rebase onto the new `origin/main` (a non-linear merge into `main` is rejected by design).
-- Land a pending worktree branch before committing unrelated work to `main`.
-  An intervening root commit to `main` stales the peer's completed `/sync-worktree` rebase, so the ff-merge is rejected and the peer must re-rebase (Refs #549).
-  An **unpushed** root commit is the sharper form — the peer rebases onto `origin/main`, cannot see it, and its rebase is a no-op, so it cannot self-correct.
-  `git pull --ff-only` hides this (`Already up to date.`, exit 0, when local is merely *ahead*): check `git rev-list --count origin/main..main`, and predict the ff-merge with `git merge-base --is-ancestor main <branch>` (Refs #815).
-- A first launch in each worktree reinstalls `.pi/npm/` (gitignored, so it does not carry over) — a one-time cost Pi handles automatically.
-
-###### Session naming convention
-
-Each prompt template calls `set_session_name` (from `pi-session-tools`) to label the session automatically:
-
-| Stage                    | Session name format            |
-| ------------------------ | ------------------------------ |
-| PR review                | `#N PR Review — <title>`       |
-| Planning                 | `#N Planning — <title>`        |
-| TDD implementation       | `#N TDD — <title>`             |
-| Build implementation     | `#N Build — <title>`           |
-| Shipping (trunk lane)    | `#N Ship — <title>`            |
-| Worktree sync (peer)     | `#N Sync (worktree) — <title>` |
-| Shipping (worktree lane) | `#N Ship (worktree) — <title>` |
-| Retrospective            | `#N Retrospective — <title>`   |
-
-Each prompt template sets the appropriate name automatically via `set_session_name`.
-Both `Shipping` rows come from `/ship`, which picks between them once it has detected its lane.
-
-###### Retro file format
-
-Get each stage timestamp from `date -u +"%Y-%m-%dT%H:%M:%SZ"` — never write one from memory; a model has no clock (Refs #653).
-
-Retro files use YAML frontmatter and accumulate `## Stage:` entries:
-
-````markdown
----
-issue: 42
-issue_title: "Extract ExtensionPaths value object"
----
-
-# Retro: #42 — Extract ExtensionPaths value object
-
-## Stage: Planning (2026-05-20T14:00:00Z)
-
-### Session summary
-
-...
-
-### Observations
-
-...
-
-## Stage: Implementation — TDD (2026-05-21T10:00:00Z)
-
-### Session summary
-
-...
-
-### Observations
-
-...
-
-## Stage: Final Retrospective (2026-05-22T16:00:00Z)
-
-### Session summary
-
-...
-
-### Diagnostic details
-
-- **Model-performance correlation** — Explore subagent ran on claude-sonnet-4-20250514; appropriate for read-only codebase search.
-- **Escalation-delay tracking** — 8 consecutive tool calls on the same lint error in TDD step 3 before switching approach.
-- **Feedback-loop gap analysis** — `pnpm run check` ran only after step 6; should have run after step 4 (interface change).
-````
-
-The `### Diagnostic details` subsection is optional — include it only when the `/retro` prompt's diagnostic lenses produce actionable findings.
-Omit it when all lenses find nothing notable.
-
-###### Pre-completion reviewer
-
-The `pre-completion-reviewer` agent (`.pi/agents/pre-completion-reviewer.md`) is dispatched automatically by `/tdd-plan` and `/build-plan` after all implementation steps are complete.
-It runs as a fresh-context subagent (no implementation bias) and produces a PASS / WARN / FAIL report covering: deterministic checks (`pnpm run check`, `pnpm run lint`, `pnpm run test`, `pnpm fallow dead-code`), acceptance criteria verification, conventional commits, documentation staleness, code design, test artifacts, Mermaid diagrams, cross-step invariant preservation (a later phase step must not regress an earlier step's documented `Outcome:` invariant), and planned follow-up filing (a follow-up the plan names must carry a recorded issue number).
-The `pre-completion` skill (`.pi/skills/pre-completion/SKILL.md`) encodes the dispatch protocol loaded by both templates.
-The agent's `model:` frontmatter must use the `provider/id` alias form the Pi CLI/UI accepts (e.g. `anthropic/claude-sonnet-4-6`); an ID absent from the model registry silently falls back to the parent session's model.
-
-###### Craftsmanship subagents
-
-Two read-only subagents carry the micro / craftsmanship lens (SOLID at the method scale, Test-Driven **Design**, self-documenting code) so it is examined systematically rather than left to whoever has spare context:
-
-- `tidy-first-assessor` (`.pi/agents/tidy-first-assessor.md`) — dispatched during `/plan-issue` via the `tidy-first` skill (`.pi/skills/tidy-first/SKILL.md`), after the design is settled and before the plan is written.
-  It reads the files the change will touch and proposes preparatory `refactor:`/`test:` commits that shrink the change (make the change easy, then make the easy change).
-  Advisory; the planning agent triages them into the plan's TDD Order, so the implementing session executes them as ordinary steps and runs no second assessment.
-  Planning is the dispatch point because the plan is what must absorb the answer — an assessment arriving at implementation time can only contradict a frozen plan, and a contradiction it reports (a function that does not exist, a call-site count that is off) is a correction to the design while the design is still cheap to change.
-  Strictly change-scoped — it must not propose tidying code the change will not touch; rejections are recorded under `#### Deferred tidyings` in the Planning stage note for `/plan-improvements` to sweep.
-- `craftsmanship-scout` (`.pi/agents/craftsmanship-scout.md`) — dispatched during `/plan-improvements` discovery (Step 5).
-  It **opens** (does not grep) the largest test files and sweeps method-level design, naming, and test-code quality (taxonomy Category G) into a scored debt inventory, flagging each cluster concentrated vs. scattered.
-  The concentrated/scattered split drives the deferral gate: concentrated debt in a hot area is a legitimate craftsmanship lean phase; scattered trivia defers to the `tidy-first` boy-scout path.
-
-Both use the same `provider/id` model-alias rule as the reviewer above.
-
-Use `/retro-note` to capture quick observations mid-session without interrupting the workflow.
-Use `scripts/issue-context.sh <N>` to gather all available context for an issue (plan, retro, commits, branches) when bootstrapping a new session.
-
-##### Code Style
-
-This project uses **pnpm** exclusively — never `npm` or `npx`.
-Before implementing, refactoring, or reviewing code, load the `code-design` skill — it covers naming, SOLID and structural design heuristics, TypeScript conventions, pnpm/ES2024 tooling rules, Pi SDK boundaries, and Biome/ESLint conflict workarounds.
-
-##### Shell and search
-
-Use `colgrep` for intent-based codebase exploration and convention discovery; use `grep` for exact symbol matching.
-`rg -r` is `--replace`, not `--recursive` — `rg -rn pattern path` silently rewrites every match to `n` and drops the line numbers.
-`rg` recurses by default; drop the `-r` (Refs #725).
-Quote a glob pattern meant for a command rather than the shell — `--include='*.ts'`, `find . -name '*.ts'`.
-Unquoted, it expands against the cwd first: bash silently substitutes a matched filename, and zsh aborts with `no matches found`.
-In zsh an unquoted parameter is not word-split, so `perl -pi -e '…' $FILES` passes the whole list as a single filename — spell a multi-file list inline.
-Do not start a bash word with `=` — zsh's `equals` expansion reads `=word` as a command-path lookup, so a decorative `echo ===` separator aborts with `zsh:1: == not found` and discards the rest of an `A; B; C` chain.
-Use `echo ---`.
-Each `bash` call runs in a fresh shell — a variable set in one call is unset in the next.
-Chain producer and consumer in one call, or re-derive the value (Refs #772).
-A `gh issue comment` / `gh pr comment` body containing backticks or fences belongs in a file passed with `--body-file`, whatever the quoting (Refs #794, #636).
-Single quotes ship a `` \` `` literally, and double quotes need every `` ` `` escaped, where one miscount publishes mismatched code spans.
-A `git commit` body with quotes or backticks belongs in a file passed with `-F` — a `-m` string corrupted one, invisible until `git log -1 --format=%B` (Refs #898).
-A shell snippet quoted inside a `/* */` block comment must not contain `*/` — a `sed 's/,.*//'` closes the comment and breaks the file's parse.
-Use `cut -d, -f1`.
-Pass file tool paths repo-relative (`packages/<pkg>/src/x.ts`), not hand-built absolute ones — a mistyped absolute path trips the `external_directory` gate instead of failing fast (Refs #726).
-Before making an existing prose convention machine-read (a grep-able heading, tag, or marker), enumerate its existing spellings first.
-A hand-written convention drifts — `Open-issue sweep dispositions` had three spellings across two packages' archives (Refs #767).
-When re-verifying a count established earlier in the session, re-run the original command — do not re-derive it with a new pattern.
-A looser one (`rg -l` for an anchored `rg -c '^…'`) admits prose mentions and overturns a correct number (Refs #843).
-Do not spend a tool call measuring the shape of a deterministic command's own output — `git rev-parse` emits exactly 40 hex characters, so `| wc -c` on it tests git, not your work.
-Re-running it a second way (`git log -1 --format=%H`) is the same mistake wearing a disguise.
-Re-resolve the identifiers you *typed*, which is the only place a wrong value can enter (Refs #839).
-
-##### Markdown
-
-Before writing or editing markdown files, load the `markdown-conventions` skill — it covers the formatting rules (one-sentence-per-line, fence languages, list numbering, table style) and the YAML frontmatter schema for plans and retros.
-
-##### Mermaid
-
-Before authoring or reviewing Mermaid diagrams, load the `mermaid` skill.
-
-##### Testing
-
-Before writing or debugging tests, load the `testing` skill for Vitest mock patterns and TDD planning rules.
-
-##### Commits
-
-Use Conventional Commits.
-Type a commit by what a user can observe once it lands, not by what it adds to the tree.
-A module no code imports yet is `refactor:` however new it is; the commit that wires it up carries the `feat:`/`fix:` (Refs #710, #744).
-For a breaking change, place the `!` **after** the scope: `fix(pkg)!:` / `feat(pkg)!:` — never `fix!(pkg):`, which the grammar rejects, so the commit is dropped and the major bump skipped (Refs #452).
-The `!` carries the major bump even on a type that is otherwise skipped from the changelog, such as `refactor(pkg)!:` — `protect_breaking_commits` in `cliff.toml` is what preserves that; do not remove it (Refs #865).
-A `commit-msg` hook runs [`committed`](https://github.com/crate-ci/committed) (wired via `prek`, installed by `pnpm install`) and enforces this deterministically: a malformed header fails locally before it can mis-version a release (Refs #457, #468).
-When a `prek` hook fails to **install** (a network error building the hook env — e.g. `uv` fetching `setuptools`, not a lint/grammar failure), it blocks the commit without having run any check.
-Run the equivalent gate manually (`pnpm exec rumdl check`, `pnpm run lint`) and, once clean, commit with `--no-verify`.
-This applies only to a hook *install* failure — a hook that runs and *reports* a violation is a real gate; fix it, never `--no-verify` past it.
-Commit at meaningful checkpoints without waiting for an explicit reminder.
-Prefer small, reviewable commits that leave the repository in a valid state.
-Do not gate a commit (or any `&&` step) on a check piped through `tail`/`head` — a pipeline's exit status is the filter's, so a failed `pnpm run lint`/`check` is masked and the commit still runs.
-Run the check unpiped, or test `${PIPESTATUS[0]}`.
-`git commit … | tail -3` likewise hides a hook rejection behind the hook's own PASS lines — confirm the commit landed with `git log -1` (Refs #885).
-To keep the output short without losing the gate, redirect rather than pipe: `pnpm run check >/tmp/check.log 2>&1 || tail -30 /tmp/check.log`.
-That redirect hides Biome findings at **warning** level, which exit 0 — `pnpm run lint` reports PASS while new warnings accumulate.
-After adding or heavily editing files, count them: `pnpm run lint >/tmp/l.log 2>&1; grep -c 'lint/' /tmp/l.log || true` — `grep -c` exits 1 on a zero count (Refs #694).
-`biome check --write` reports `No fixes applied` for a warning, whose fix is unsafe-classified — hand-edit it, or `--write --unsafe` the one file.
-`rumdl` caches per markdown file keyed on that file's own content, but `MD057` (relative-link existence) depends on the filesystem around it — so moving or renaming a linked-to file leaves every unchanged doc that links to it cached as clean.
-After a commit that moves or renames files, clear the cache before trusting the gate: `find .rumdl_cache -type f -delete` (Refs #879).
-Clearing it otherwise is waste, not caution — a cold `rumdl check .` costs ~1.9 s against ~0.1 s warm, and a content edit already invalidates its own entry.
-When a shell loop or script needs a status variable, do not name it `status` — zsh reserves `$status` (an alias for `$?`) as read-only, so the assignment aborts with `read-only variable: status`; use `state`/`rc` instead.
-Do not edit `CHANGELOG.md` — `scripts/release/prepare-release.sh` owns it, splicing each release in below the header.
-Do not name an unreleased version in docs — git-cliff assigns it at release time, so a number written during implementation is a guess. (`./scripts/release/next-version.sh <pkg>` will tell you what it would be, but that answer moves with every commit until the release runs.) Describe the condition instead: "a version that predates the heartbeat", not "older than 25.2.0" (Refs #721).
-The same applies to an unfiled issue number: file the follow-up first, then write back the number the API returned — a guessed `#N` is off by however many issues landed since (Refs #610).
-The same applies to a commit SHA: resolve every one you publish with `git rev-parse` — including the second and third hash cited mid-draft, which is where the invention happens (Refs #777).
-Before pricing a rename of this repo's own export as breaking, check whether it has shipped.
-Read the file at the published tag: `pnpm view @gotgenes/<pkg> version`, then `git show <pkg>-v<version>:<path>`.
-Never `.pi/npm/node_modules/` — it is only as fresh as the last `pi update --extensions`, so a stale copy hides an export that already shipped.
-An export that exists only on unreleased `main` renames for free (Refs #789, #794).
-The same read answers what the published code *does*, not only whether a symbol exists — #810 priced its wire change on the shipped reader's own tolerance of a missing field.
-A type reachable from the published declaration bundle is as breaking as a named export: `ForwardedSessionApproval` is exported by no name, but a third-party `Authorizer` link receives it through `PromptPermissionDetails` (Refs #810).
-Before naming a remediation in a breaking-change migration note (CLI flag, config key, API call), verify it exists in the real surface (SDK types, `--help`, schema) — do not infer a config key by analogy.
-The note ships to the `BREAKING CHANGE:` footer, the generated CHANGELOG, and the issue close comment.
-Do not put `Closes #N` / `Fixes #N` / `Resolves #N` in commit messages.
-`/ship` posts a curated close comment (implemented-in SHA, behavior summary) via `issue_close`; a commit keyword auto-closes the issue on push and pre-empts that comment, leaving the issue with no summary.
-Reference issues as `(#N)` in the subject or `Refs #N` in the body instead.
-Still separate footer tokens (`Refs #N`, `BREAKING CHANGE:`) from the body with a blank line for readability; it is not enforced — `committed` validates only the header grammar and parses a body-line `#N` correctly, so the `conventional-commits-parser` footer false positive that motivated the swap no longer applies (Refs #468).
-Credit a contributor with `Co-authored-by:` whenever their **accepted design** ships, whether or not their patch was taken and whether or not they opened a PR — a constraint or mechanism adopted from an issue, a PR review, or a comment thread all qualify.
-The trigger is adoption, not the artifact it arrived in: #664 was a proposal implemented in-repo, and #890 shipped a constraint stated in an open PR's review thread, uncredited, because the rule was read as covering adopted PRs alone (Refs #664, #890).
-A measured bug report with no design contribution is not this case — name the reporter in the issue body and the close comment instead.
-Put `Co-authored-by:` in the **final** paragraph, below `Refs #N` — git reads only the last paragraph as trailers, and `Refs #N` (no colon) is not trailer-shaped, so a co-author line above it is invisible to GitHub attribution.
-Verify with `git interpret-trailers --parse` (Refs #710).
-When a commit-lint or format gate fires a false positive, disable the single offending check (the specific `committed.toml` field), not the whole gate.
-Avoid `git rebase -i` in this environment — `$EDITOR` opens an interactive editor that aborts non-interactively.
-Reorder or fix unpushed commits with `git reset` + re-commit, or set `GIT_SEQUENCE_EDITOR`/`EDITOR=true`.
-`git rebase --continue` opens the *commit-message* editor through `GIT_EDITOR`, which `GIT_SEQUENCE_EDITOR` does not cover — set `GIT_EDITOR=true` for it.
-In a worktree `.git` is a file, so rebase state lives at `$(git rev-parse --git-dir)/rebase-merge`; a bare `.git/rebase-merge` test reports a live rebase as absent (Refs #863).
-A scripted rebase reports `Successfully rebased` even when the sequence editor matched nothing and every line replayed as `pick` — this git writes its todo as `pick <sha> # <subject>`.
-Verify by diffing the subjects, and confirm the content is untouched with `git diff <backup-tag> HEAD` (Refs #710).
-After `git reset --soft HEAD~N`, all N commits' changes are staged together — to re-split into separate commits, run `git reset` (mixed) first, then `git add` per commit.
-A commit a pre-commit hook rejected never moved `HEAD`, so a following `git reset --soft HEAD~1` undoes the *previous* commit — confirm with `git log -1` first (Refs #866).
-`git checkout <ref> -- <path>` to revert any probe — an A/B swap, a killing mutation, a type-check spike — destroys uncommitted work: the restore half (`git checkout HEAD -- <path>`) restores HEAD, which is the *previous* commit while the current step is still uncommitted.
-Back both sides up as files first — `cp` the working state aside, `git show <ref>:<path> >` the baseline — and swap with `cp` in both directions; never lead the restore with `rm -rf <path>`, which the permission gate denies mid-command and leaves a partial tree (Refs #742).
-Staged deletions from `git rm` ride along with the next `git commit` even when you `git add` only unrelated paths — commit with an explicit pathspec (`git commit -- <paths>`) or check `git status` first.
-Before `git commit --amend`, confirm HEAD is your own commit (`git log -1`) — a concurrent session may have committed since yours, and amend rewrites whatever HEAD points at.
+# AGENTS.md — Zrow fork of pi-packages
+
+This is a **product fork** of `gotgenes/pi-packages`, maintained for Zrow (Pi-native
+desktop app). It is NOT the upstream repo: upstream workflow docs (releases via
+`gh workflow run`, `/ship`, `/retro`, issue triage, `.pi/` skills/prompts) do not
+apply here. Do not follow the upstream `AGENTS.md` — this file replaces it.
+
+## What Zrow uses
+
+Exactly two packages, consumed via bun workspaces from the kyracode root:
+
+- `packages/pi-subagents` (`@gotgenes/pi-subagents`) — durable child sessions,
+  explore/worker/reviewer/oracle roster, steer/result lifecycle.
+- `packages/pi-permission-system` (`@gotgenes/pi-permission-system`) — Core-owned
+  permission evaluation, host policy, child-grant forwarding.
+
+Everything else in this checkout (`pi-autoformat`, `pi-colgrep`, `pi-github-tools`,
+`pi-nocd`, `pi-permission-model-judge`, `pi-session-tools`, `pi-subagents-worktrees`,
+root `.pi/`, `docs/plans|retro|triage`, workflows, release scripts) is **not built,
+not shipped, and must be ignored**. Do not read it for behavior, do not edit it,
+do not "fix" it.
+
+## Docs worth reading (in the two kept packages)
+
+- `docs/host-integration.md` — the host seams, the only integration points:
+  `@gotgenes/pi-subagents/host` (`registerSubagentHost`),
+  `@gotgenes/pi-permission-system/host` (host policy, child evaluator). Fail-closed
+  defaults. Read this before touching host wiring.
+- `docs/architecture/` + `docs/decisions/` — current behavior and ADRs.
+- `docs/configuration.md`, and in permission-system also `docs/subagent-integration.md`
+  and `docs/session-approvals.md`.
+- `docs/plans/`, `docs/retro/`, `comparison-with-upstream.md`,
+  `opencode-compatibility.md` — working notes, not authority. Skip unless a decision
+  record is explicitly needed, and never cite a plan Non-Goal as a boundary.
+
+## Pi + Zrow notes (read before changing the kept packages)
+
+- Zrow renders all approval/prompt UI in React (approval picker). The pi-tui
+  components inside these packages (`permission-prompt-component`, transcript
+  widgets) are **not mounted** — `@earendil-works/pi-tui` stays only as an npm
+  dependency for rendering primitives the kept code imports. Do not wire pi-tui UI.
+- Product customizations live on the `zrow` branch as regular commits on top of
+  upstream history (storage paths, durable sessions, host policy hooks, roster).
+- Manifest `version` fields track **upstream releases**, not fork state: two trees
+  can share a version with different behavior. The fork state is identified by the
+  git SHA (kyracode pins it via the submodule gitlink). Never infer fork content
+  from a version number.
+- `CHANGELOG.md` files are upstream history. Do not rewrite them as if cherry-picks
+  were released upstream.
+
+## Watching upstream (cherry-picks only)
+
+- NEVER `merge upstream/main` — it drags in all 7 unused packages plus docs noise.
+- Watch: `git fetch upstream`, inspect tags (`pi-subagents-v*`,
+  `pi-permission-system-v*`), read the fix with `git show <sha> --stat`.
+- Take only reviewed fix/test/refactor commits touching our two packages:
+  `git cherry-pick -x <sha>` in dependency order (refactor prereqs first).
+  Skip docs/retro/triage-only commits and `.pi/` skill edits. If a fix commit mixes
+  code with doc hunks, check out the doc paths from HEAD and keep code only.
+- A cherry-pick whose base predates a fork-side refactor of the same lines needs a
+  manual keep-both resolution (fork behavior + upstream fix); run the package suite
+  after each conflicted pick.
+- Push the result to `origin zrow` (fast-forward only), then bump the gitlink in
+  kyracode as its own commit.
+
+## Working in this tree
+
+- Package commands run with pnpm from the fork root, e.g.
+  `pnpm --filter @gotgenes/pi-subagents run check|test|lint`.
+- kyracode consumes the packages as source via bun workspaces; `dist/` and
+  `node_modules/` are git-ignored build artifacts, never source of truth.
+- Local visibility: this checkout may use sparse-checkout limited to the two kept
+  packages. For a complex pick series touching shared root configs, temporarily
+  disable it (`git sparse-checkout disable`) and re-enable after.
