@@ -270,7 +270,7 @@ describe("event-handler registration completeness", () => {
     const pi = makeFakePi();
     piPermissionSystemExtension(pi as unknown as ExtensionAPI);
 
-    expect([...zrow.handlers.keys()].sort()).toEqual(EXPECTED_HANDLERS);
+    expect([...pi.handlers.keys()].sort()).toEqual(EXPECTED_HANDLERS);
   });
 });
 
