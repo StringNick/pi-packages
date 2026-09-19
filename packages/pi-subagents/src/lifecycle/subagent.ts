@@ -91,7 +91,7 @@ export type ResumeRefusal =
 	| "workspace-disposed";
 
 /**
- * The result of a steer attempt. `Subagent.steer` owns the non-running
+ * The result of a steer attempt. `Subagent.steer` owns the inactive-state
  * rejection rule and reports it here, so coordinators switch on the outcome
  * instead of pre-checking status (tell by id, with outcomes).
  */
@@ -360,9 +360,9 @@ export class Subagent {
 
 
 	/**
-	 * Steer a running agent, owning the non-running rejection rule.
+	 * Steer an active agent, owning the inactive-state rejection rule.
 	 * Returns a `rejected` outcome (with the observed status) when the agent is
-	 * not running, a `buffered` outcome when the session is not yet ready, or a
+	 * neither queued nor running, a `buffered` outcome when the session is not yet ready, or a
 	 * `delivered` outcome once the message reaches the session.
 	 */
 	async steer(message: string): Promise<SteerOutcome> {
@@ -510,13 +510,13 @@ export class Subagent {
 			model: this.subagentSession.getModel(),
 			thinkingLevel: this.subagentSession.getThinkingLevel(),
 		};
-		this.flushPendingSteers();
 		this.listeners.attachObserver(subscribeSubagentObserver(this.subagentSession, this.state, {
 			onCompact: (info) => this.execution.observer?.onCompacted?.(this, info),
 		}));
 		this.execution.observer?.onSessionCreated?.(this);
 
 		try {
+			await this.flushPendingSteers();
 			const result = await this.subagentSession.runTurnLoop(this.execution.prompt, {
 				maxTurns: this.execution.maxTurns,
 				defaultMaxTurns: runConfig?.defaultMaxTurns,
@@ -651,6 +651,7 @@ export class Subagent {
 			this.listeners.attachObserver(subscribeSubagentObserver(subagentSession, this.state, {
 				onCompact: (info) => this.execution.observer?.onCompacted?.(this, info),
 			}));
+			if (this._pendingSteers.length > 0) await this.flushPendingSteers();
 			const result = await subagentSession.resumeTurnLoop(prompt, signal);
 			if (signal?.aborted) this.stopResume();
 			else this.completeResume(result);
@@ -792,11 +793,13 @@ export class Subagent {
 	 * Flush all buffered steer messages to the session and clear the buffer.
 	 * Called once the session is available (inside run()).
 	 */
-	private flushPendingSteers(): void {
-		for (const msg of this._pendingSteers) {
-			this.subagentSession?.steer(msg).catch(() => {});
+	private async flushPendingSteers(): Promise<void> {
+		const session = this.subagentSession;
+		if (!session) return;
+		while (this._pendingSteers.length > 0) {
+			const message = this._pendingSteers.shift();
+			if (message !== undefined) await session.steer(message);
 		}
-		this._pendingSteers = [];
 	}
 
 	/** Reset for resume: running status, new startedAt, clear completedAt/result/error/consumedAt/listeners. */

@@ -34,7 +34,7 @@ describe("SteerTool", () => {
 	it("includes promptSnippet", () => {
 		const tool = new SteerTool(makeManager(), makeEvents());
 		expect(tool.toToolDefinition().promptSnippet).toBe(
-			"Send a mid-run message to redirect a running background agent.",
+			"Send a message to a running or queued background agent.",
 		);
 	});
 
@@ -53,11 +53,24 @@ describe("SteerTool", () => {
 		expect(result.content[0].text).toContain('Did you mean "807081f0-bb07-462"');
 	});
 
-	it("rejects steering a non-running agent", async () => {
+	it("rejects steering an inactive agent", async () => {
 		const records = new Map([["agent-1", createTestSubagent({ status: "completed" })]]);
 		const result = await execute(makeManager(records), makeEvents(), { agent_id: "agent-1", message: "hi" });
-		expect(result.content[0].text).toContain("not running");
+		expect(result.content[0].text).toContain("not active");
 		expect(result.content[0].text).toContain("completed");
+	});
+
+	it("queues steer while an agent waits for admission", async () => {
+		const record = createTestSubagent({ status: "queued" });
+		const records = new Map([["agent-1", record]]);
+		const events = makeEvents();
+		const result = await execute(makeManager(records), events, { agent_id: "agent-1", message: "redirect" });
+		expect(result.content[0].text).toContain("queued");
+		expect(record.pendingSteerCount).toBe(1);
+		expect(events.emit).toHaveBeenCalledWith("subagents:steered", {
+			id: "agent-1",
+			message: "redirect",
+		});
 	});
 
 	it("queues steer when session is not ready", async () => {

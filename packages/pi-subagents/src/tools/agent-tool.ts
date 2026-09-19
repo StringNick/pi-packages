@@ -37,6 +37,7 @@ export interface AgentToolManager {
 	startResume: (id: string, prompt: string, options: ResumeCallOptions) => ResumeAdmission;
 	resume: (id: string, prompt: string, options: ResumeCallOptions) => Promise<ResumeOutcome>;
 	getRecord: (id: string) => Subagent | undefined;
+	listAgents: () => Subagent[];
 }
 
 /** Narrow runtime interface — the Agent tool's slice of SubagentRuntime. */
@@ -142,6 +143,19 @@ export class AgentTool {
 		);
 		if ("error" in config) throw new Error(config.error);
 
+		// A same-role agent is a continuity ambiguity, not proof that the task is
+		// distinct. Stop before creating an unnecessary session and make the
+		// caller choose the state-appropriate continuation door. Deliberate
+		// parallel work and second opinions can opt into a fresh session.
+		if (params.fresh_session !== true) {
+			const existing = this.manager.listAgents().find(
+				(record) =>
+					record.type === config.identity.subagentType &&
+					(record.isActive() || record.resumeRefusal === undefined),
+			);
+			if (existing) throw new Error(existingAgentGuidance(existing));
+		}
+
 		// ---- Boundary extraction (after config so inheritContext is resolved) ----
 		const snapshot = this.runtime.buildSnapshot(config.execution.inheritContext);
 		const { parentSessionFile, parentSessionId } = this.runtime.getSessionInfo();
@@ -238,6 +252,7 @@ export class AgentTool {
 			"- Keep simple lookups and small changes local when delegation costs more than it saves. The parent owns planning, integration, and the final answer; there is no mandatory specialist pipeline.",
 			"- Prefer run_in_background: true for independent delegation, including resumes. Use foreground only when the result is needed before your next step.",
 			...this.agentGuidelines,
+			"- Reuse an existing agent when the request continues its work. Choose by state: use steer_subagent for a running or queued agent; use resume for a completed resumable agent. Start a new agent only for a distinct task, an intentional second opinion, or when continuation is unavailable.",
 			"- Give each agent a self-contained task: objective, relevant paths and evidence, constraints, owned scope, success checks, and a concise expected output. Check that its tools can do the task. Include a stopping condition for open-ended investigation.",
 			"- Assign disjoint write ownership to parallel agents, preserve existing edits, and coordinate shared files; a prompt is not workspace isolation. Read-only roles are behavioral contracts, not shell sandboxes.",
 			"- Do not repeat delegated investigation while it runs. On completion, inspect material evidence or diffs and verify integration proportional to risk; a confident report is not proof. Resolve conflicts and summarize verified results and gaps for the user.",
@@ -257,6 +272,7 @@ export class AgentTool {
 			promptSnippet: "Delegate independent work in background; create with prompt, subagent_type, and description, or continue with resume and prompt.",
 			promptGuidelines: [
 				"Use subagent only when a bounded specialist task or useful parallel work justifies delegation; keep simple work and overall planning in the parent.",
+				"Before creating a new subagent, reuse a related existing agent: steer a running or queued agent, resume a completed resumable agent, and create a fresh agent only for distinct work, a second opinion, or when continuation is unavailable.",
 				"Prefer subagent with run_in_background: true for independent delegation, including resumes; results and questions are pushed automatically. Use foreground only when the result is needed before your next step.",
 				"Do not use get_subagent_result to poll or reflexively wait for subagent work; reserve it for full output, truncated-output recovery, transcript inspection, or diagnostics.",
 			],
@@ -315,6 +331,12 @@ ${guidelines}
 						description: "Optional agent ID to resume from. Requires only prompt; keeps its existing session, model, type, and description.",
 					}),
 				),
+				fresh_session: Type.Optional(
+					Type.Boolean({
+						description:
+							"Set true only after deciding this must be a separate same-type agent (for example, a distinct task or intentional second opinion). Without it, an existing active or resumable agent of that type triggers continuation guidance instead of a duplicate launch.",
+					}),
+				),
 				inherit_context: Type.Optional(
 					Type.Boolean({
 						description:
@@ -366,6 +388,22 @@ ${guidelines}
 			) => this.execute(toolCallId, params, signal, onUpdate, ctx),
 		});
 	}
+}
+
+function existingAgentGuidance(record: Subagent): string {
+	const identity = `Agent "${record.id}" (${record.type}, "${record.description}")`;
+	if (record.isActive()) {
+		return (
+			`${identity} is already ${record.status}. No new agent was started. ` +
+			`Continue it with steer_subagent using agent_id "${record.id}". ` +
+			"If this is intentionally separate work or a second opinion, retry the new launch with fresh_session: true."
+		);
+	}
+	return (
+		`${identity} can be resumed. No new agent was started. ` +
+		`Continue it with {"resume":"${record.id}","prompt":"<follow-up>","run_in_background":true}. ` +
+		"If this is intentionally separate work or a second opinion, retry the new launch with fresh_session: true."
+	);
 }
 
 /**

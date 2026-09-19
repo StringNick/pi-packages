@@ -656,14 +656,25 @@ describe("Subagent.run() — happy path", () => {
 	});
 
 	it("flushes pending steers when session is created", async () => {
-		const agent = createRunnableAgent();
-		// A steer arriving while the agent is running but the session is not yet
-		// ready buffers; run() flushes it once the session is created.
-		agent.markRunning(Date.now());
-		void agent.steer("hurry up");
+		const { factory, stub } = createFactory();
+		const agent = createRunnableAgent({ createSubagentSession: factory });
+		// A steer arriving before admission buffers; run() flushes it once the
+		// queued agent starts and its session is created.
+		expect(await agent.steer("hurry up")).toEqual({ kind: "buffered" });
 		expect(agent.pendingSteerCount).toBe(1);
 		await agent.run();
+		expect(stub.steer).toHaveBeenCalledWith("hurry up");
 		expect(agent.pendingSteerCount).toBe(0);
+	});
+
+	it("surfaces a buffered steer delivery failure", async () => {
+		const { factory, stub } = createFactory();
+		stub.steer.mockRejectedValue(new Error("steer rejected"));
+		const agent = createRunnableAgent({ createSubagentSession: factory });
+		expect(await agent.steer("unsupported command")).toEqual({ kind: "buffered" });
+		await agent.run();
+		expect(agent.status).toBe("error");
+		expect(agent.error).toContain("steer rejected");
 	});
 });
 

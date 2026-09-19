@@ -61,6 +61,7 @@ export function createToolDeps(overrides: Partial<AgentToolFixture> = {}): Agent
 			})),
 			resume: vi.fn().mockResolvedValue({ kind: "resumed", record: createTestSubagent() }),
 			getRecord: vi.fn().mockReturnValue(createTestSubagent()),
+			listAgents: vi.fn().mockReturnValue([]),
 		},
 		runtime,
 		settings: { defaultMaxTurns: undefined as number | undefined, maxConcurrent: 4 },

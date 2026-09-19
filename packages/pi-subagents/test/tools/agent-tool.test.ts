@@ -71,6 +71,7 @@ describe("AgentTool", () => {
 		const def = makeTool(createToolDeps()).toToolDefinition();
 		expect(def.promptGuidelines).toEqual([
 			"Use subagent only when a bounded specialist task or useful parallel work justifies delegation; keep simple work and overall planning in the parent.",
+			"Before creating a new subagent, reuse a related existing agent: steer a running or queued agent, resume a completed resumable agent, and create a fresh agent only for distinct work, a second opinion, or when continuation is unavailable.",
 			"Prefer subagent with run_in_background: true for independent delegation, including resumes; results and questions are pushed automatically. Use foreground only when the result is needed before your next step.",
 			"Do not use get_subagent_result to poll or reflexively wait for subagent work; reserve it for full output, truncated-output recovery, transcript inspection, or diagnostics.",
 		]);
@@ -123,6 +124,61 @@ describe("AgentTool", () => {
 		expect(def.description).toContain("disjoint write ownership");
 		expect(def.description).toContain("Do not repeat delegated investigation");
 		expect(def.description).toContain("inspect material evidence or diffs");
+		expect(def.description).toContain("Choose by state: use steer_subagent for a running or queued agent");
+	});
+
+	it("stops a duplicate same-type launch and points to resume", async () => {
+		const deps = createToolDeps();
+		const existing = createTestSubagent({
+			id: "oracle-1",
+			type: "oracle",
+			description: "Analyze cursor crash",
+			status: "completed",
+			sessionReady: true,
+		});
+		deps.manager.listAgents = vi.fn().mockReturnValue([existing]);
+
+		await expect(execute(deps, {
+			prompt: "Ask the same oracle to review the fix",
+			description: "Review cursor fix",
+			subagent_type: "oracle",
+		})).rejects.toThrow(
+			'Continue it with {"resume":"oracle-1","prompt":"<follow-up>","run_in_background":true}.',
+		);
+		expect(deps.manager.spawn).not.toHaveBeenCalled();
+		expect(deps.manager.spawnAndWait).not.toHaveBeenCalled();
+		expect(deps.runtime.buildSnapshot).not.toHaveBeenCalled();
+	});
+
+	it("stops a duplicate same-type launch and points active agents to steer", async () => {
+		const deps = createToolDeps();
+		const existing = createTestSubagent({
+			id: "oracle-1",
+			type: "oracle",
+			description: "Analyze cursor crash",
+			status: "queued",
+		});
+		deps.manager.listAgents = vi.fn().mockReturnValue([existing]);
+
+		await expect(execute(deps, {
+			prompt: "Also review the fix",
+			description: "Review cursor fix",
+			subagent_type: "oracle",
+		})).rejects.toThrow('Continue it with steer_subagent using agent_id "oracle-1".');
+	});
+
+	it("allows an intentional fresh same-type launch", async () => {
+		const deps = createToolDeps();
+		deps.manager.listAgents = vi.fn().mockReturnValue([
+			createTestSubagent({ type: "oracle", status: "completed", sessionReady: true }),
+		]);
+		await execute(deps, {
+			prompt: "Give an independent second opinion",
+			description: "Independent cursor review",
+			subagent_type: "oracle",
+			fresh_session: true,
+		});
+		expect(deps.manager.spawnAndWait).toHaveBeenCalledOnce();
 	});
 
 	it("calls registry.reload() on each execute", async () => {

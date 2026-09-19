@@ -47,12 +47,12 @@ export class SteerTool {
 		switch (outcome.kind) {
 			case "rejected":
 				return textResult(
-					`Agent "${params.agent_id}" is not running (status: ${outcome.status}). Cannot steer a non-running agent.`,
+					`Agent "${params.agent_id}" is not active (status: ${outcome.status}). Cannot steer a completed or stopped agent.`,
 				);
 			case "buffered":
 				this.events.emit("subagents:steered", { id: record.id, message: params.message });
 				return textResult(
-					`Steering message queued for agent ${record.id}. It will be delivered once the session initializes.`,
+					`Steering message queued for agent ${record.id}. It will be delivered if the agent starts and its session initializes.`,
 				);
 			case "delivered":
 				this.events.emit("subagents:steered", { id: record.id, message: params.message });
@@ -84,14 +84,14 @@ export class SteerTool {
 			name: "steer_subagent" as const,
 			label: "Steer Agent",
 			promptSnippet:
-				"Send a mid-run message to redirect a running background agent.",
+				"Send a message to a running or queued background agent.",
 			description:
-				"Send a steering message to a running agent. The message will interrupt the agent after its current tool execution " +
-				"and be injected into its conversation, allowing you to redirect its work mid-run. Only works on running agents.",
+				"Send a steering message to a running or queued agent. A queued message is buffered until the agent starts; " +
+				"a running message is injected after its current tool execution, allowing you to redirect its work mid-run. Only works on active agents.",
 			parameters: Type.Object({
 				agent_id: Type.String({
 					description:
-						"The agent ID to steer (must be currently running). Copy the <task-id> from the subagent notification exactly — do not retype it from memory.",
+						"The agent ID to steer (must be queued or running). Copy the <task-id> from the subagent notification exactly — do not retype it from memory.",
 				}),
 				message: Type.String({
 					description:

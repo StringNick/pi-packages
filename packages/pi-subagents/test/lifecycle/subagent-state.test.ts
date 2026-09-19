@@ -558,12 +558,12 @@ describe("SubagentState — classification predicates", () => {
 
 	describe("instance predicates delegate to the status-level functions", () => {
 		for (const status of ALL_STATUSES) {
-			it(`"${status}": isActive=${active.has(status)}, isTerminalError=${terminalError.has(status)}, isRunning=${running.has(status)}, canBeSteered=${running.has(status)}`, () => {
+			it(`"${status}": isActive=${active.has(status)}, isTerminalError=${terminalError.has(status)}, isRunning=${running.has(status)}, canBeSteered=${active.has(status)}`, () => {
 				const state = new SubagentState({ status });
 				expect(state.isActive()).toBe(active.has(status));
 				expect(state.isTerminalError()).toBe(terminalError.has(status));
 				expect(state.isRunning()).toBe(running.has(status));
-				expect(state.canBeSteered()).toBe(running.has(status));
+				expect(state.canBeSteered()).toBe(active.has(status));
 			});
 		}
 	});

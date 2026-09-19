@@ -207,9 +207,9 @@ export class SubagentState {
 		return isRunningStatus(this._status);
 	}
 
-	/** Whether a steer message can be delivered — the agent must be running. */
+	/** Whether a steer can be delivered now or buffered until a queued run starts. */
 	canBeSteered(): boolean {
-		return isRunningStatus(this._status);
+		return isActiveStatus(this._status);
 	}
 
 	/** Increment tool use count. Called by record-observer on tool_execution_end. */

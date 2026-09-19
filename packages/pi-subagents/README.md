@@ -126,11 +126,14 @@ Launch a sub-agent.
 | `max_turns`         | number  | no       | Max agentic turns. Omit for the agent's own limit. A host may withhold this param (`SubagentHost.exposeCallerMaxTurns: false`) |
 | `run_in_background` | boolean | no       | Run without blocking                                                          |
 | `resume`            | string  | no       | Agent ID to resume a previous session                                         |
+| `fresh_session`     | boolean | no       | Confirm an intentional separate same-type agent                               |
 | `inherit_context`   | boolean | no       | Copy parent conversation text, excluding tool I/O and images                  |
 
 For `resume`, only the existing agent ID and `prompt` are needed.
 The native session retains its type, description, model, and execution settings; new spawn options do not reconfigure it.
 Add `run_in_background: true` to resume without blocking; omitted or false waits for that resumed run as before.
+Before a new same-type launch, the tool checks for an active or resumable agent and returns state-specific continuation guidance instead of silently duplicating it: steer queued/running work, or resume settled work.
+Set `fresh_session: true` only for deliberately separate work, such as an independent second opinion.
 Unknown types on a new launch are rejected with the available types.
 
 Qualified model references preserve provider identity.
@@ -174,8 +177,8 @@ These records neither restore live agents nor form a second conversation journal
 
 ### `steer_subagent`
 
-Send a steering message to a running agent.
-The message interrupts after the current tool execution.
+Send a steering message to a queued or running agent.
+Queued messages are buffered until the agent starts; running messages are injected after the current tool execution.
 
 | Parameter  | Type   | Required | Description                               |
 | ---------- | ------ | -------- | ----------------------------------------- |
