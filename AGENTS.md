@@ -14,11 +14,13 @@ Exactly two packages, consumed via bun workspaces from the kyracode root:
 - `packages/pi-permission-system` (`@gotgenes/pi-permission-system`) — Core-owned
   permission evaluation, host policy, child-grant forwarding.
 
-Everything else in this checkout (`pi-autoformat`, `pi-colgrep`, `pi-github-tools`,
-`pi-nocd`, `pi-permission-model-judge`, `pi-session-tools`, `pi-subagents-worktrees`,
-root `.pi/`, `docs/plans|retro|triage`, workflows, release scripts) is **not built,
-not shipped, and must be ignored**. Do not read it for behavior, do not edit it,
-do not "fix" it.
+Seven unused upstream packages (`pi-autoformat`, `pi-colgrep`, `pi-github-tools`,
+`pi-nocd`, `pi-permission-model-judge`, `pi-session-tools`,
+`pi-subagents-worktrees`) were deleted from the `zrow` branch — they are test and
+code noise Zrow never builds. If an upstream fix ever needs one of them, recover
+it from upstream history (`git show upstream/main:<path>`); do not restore the
+whole directory. Root `.pi/`, `docs/plans|retro|triage`, workflows and release
+scripts are likewise not read, not run, and must be ignored.
 
 ## Docs worth reading (in the two kept packages)
 
